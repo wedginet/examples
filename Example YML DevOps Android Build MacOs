@@ -1,0 +1,162 @@
+###Android build example yml using macos
+
+trigger:
+- main
+
+pool:
+  vmImage: 'macos-latest'
+
+variables:
+  buildConfiguration: 'Release'
+  ANDROID_KEYSTORE: 'android.keystore'
+  ANDROID_KEYSTORE_PASSWORD: 'your-keystore-password'
+  ANDROID_KEY_ALIAS: 'your-key-alias'
+  ANDROID_KEY_PASSWORD: 'your-key-password'
+
+steps:
+- task: UseDotNet@2
+  inputs:
+    packageType: 'sdk'
+    version: '8.x' # .NET 8
+    installationPath: $(Agent.ToolsDirectory)/dotnet
+
+- task: DownloadSecureFile@1
+  name: downloadKeystore
+  inputs:
+    secureFile: 'android.keystore'
+
+- task: Bash@3
+  inputs:
+    targetType: 'inline'
+    script: |
+      mkdir -p ~/.local/share
+      cp $(downloadKeystore.secureFilePath) ~/.local/share/$(ANDROID_KEYSTORE)
+  displayName: 'Copy Keystore'
+
+# Restore Telerik NuGet packages for BlazorShared project
+- task: DotNetCoreCLI@2
+  displayName: 'Restore Telerik NuGet - BlazorShared'
+  inputs:
+    command: 'restore'
+    projects: 'MYAPP.BlazorShared/MYAPP.BlazorShared.csproj'
+    feedsToUse: 'config'
+    nugetConfigPath: 'nuget.config'
+    externalFeedCredentials: 'Telerik'
+
+# Restore Telerik NuGet packages for Maui project
+- task: DotNetCoreCLI@2
+  displayName: 'Restore Telerik NuGet - Maui'
+  inputs:
+    command: 'restore'
+    projects: 'MYPROJ1.Maui/MYPROJ1.Maui.csproj'
+    feedsToUse: 'config'
+    nugetConfigPath: 'nuget.config'
+    externalFeedCredentials: 'Telerik'
+
+# Prepare analysis configuration
+- task: SonarQubePrepare@5
+  inputs:
+    SonarQube: 'SonarQubeEndpoint' # Service connection name
+    scannerMode: 'MSBuild'
+    configMode: 'manual'
+    projectKey: 'your-project-key'
+    projectName: 'Your Project Name'
+    extraProperties: |
+      sonar.exclusions=**/obj/**,**/bin/**
+
+# Dotnet build task for Android
+- task: DotNetCoreCLI@2
+  displayName: 'Build .NET MAUI Blazor Hybrid App for Android'
+  inputs:
+    command: 'build'
+    projects: 'MYPROJ1.Maui/MYPROJ1.Maui.csproj'
+    feedsToUse: 'config'
+    nugetConfigPath: 'nuget.config'
+    externalFeedCredentials: 'Telerik'
+    arguments: '-c $(buildConfiguration) -f net8.0-android'
+
+# Run code analysis
+- task: SonarQubeAnalyze@5
+
+- task: CopyFiles@2
+  inputs:
+    contents: '**/*.apk'
+    targetFolder: '$(Build.ArtifactStagingDirectory)'
+
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '3.x'
+    addToPath: true
+
+- task: UsePythonScript@0
+  inputs:
+    scriptSource: 'inline'
+    script: |
+      pip install --upgrade pip
+      pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
+  displayName: 'Install Google API Python Client'
+
+- task: DownloadSecureFile@1
+  inputs:
+    secureFile: 'google-play-api-key.json'
+
+- task: Bash@3
+  inputs:
+    targetType: 'inline'
+    script: echo ${GOOGLE_PLAY_SERVICE_ACCOUNT} > $(Agent.TempDirectory)/google-play-api-key.json
+  displayName: 'Create Google Play Service Account Key File'
+  env:
+    GOOGLE_PLAY_SERVICE_ACCOUNT: $(secureFiles.google-play-api-key.json)
+
+- task: Bash@3
+  inputs:
+    targetType: 'inline'
+    script: |
+      gcloud auth activate-service-account --key-file=$(Agent.TempDirectory)/google-play-api-key.json
+      gcloud --quiet config set project your-google-cloud-project-id
+  displayName: 'Authenticate with Google Cloud'
+
+- task: UsePythonScript@0
+  inputs:
+    scriptSource: 'inline'
+    script: |
+      APK_FILE=$(Build.ArtifactStagingDirectory)/*.apk
+      PACKAGE_NAME=your.package.name
+      TRACK=production
+
+      from googleapiclient.discovery import build
+      from google.oauth2 import service_account
+      import os
+
+      credentials = service_account.Credentials.from_service_account_file(os.getenv('GOOGLE_APPLICATION_CREDENTIALS'))
+      service = build('androidpublisher', 'v3', credentials=credentials)
+
+      package_name = os.getenv('PACKAGE_NAME')
+      edit_request = service.edits().insert(body={}, packageName=package_name)
+      edit_response = edit_request.execute()
+      edit_id = edit_response['id']
+
+      apk_file = os.getenv('APK_FILE')
+      apk_response = service.edits().apks().upload(
+          editId=edit_id,
+          packageName=package_name,
+          media_body=apk_file
+      ).execute()
+
+      version_code = apk_response['versionCode']
+
+      track_response = service.edits().tracks().update(
+          editId=edit_id,
+          track=os.getenv('TRACK'),
+          packageName=package_name,
+          body={u'releases': [{u'versionCodes': [str(version_code)], u'status': u'completed'}]}
+      ).execute()
+
+      commit_request = service.edits().commit(editId=edit_id, packageName=package_name).execute()
+      print(f'Successfully uploaded {apk_file} to Google Play Store with version code {version_code}.')
+  displayName: 'Upload APK to Google Play Store'
+  env:
+    GOOGLE_APPLICATION_CREDENTIALS: $(Agent.TempDirectory)/google-play-api-key.json
+    PACKAGE_NAME: your.package.name
+    TRACK: production
+    APK_FILE: $(Build.ArtifactStagingDirectory)/*.apk

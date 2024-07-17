@@ -1,0 +1,105 @@
+####### iOS yml example using macos
+trigger:
+- main
+
+pool:
+  vmImage: 'macos-latest'
+
+variables:
+  buildConfiguration: 'Release'
+  APP_BUNDLE_ID: 'com.yourcompany.yourapp'
+  APPLE_TEAM_ID: 'your-apple-team-id'
+  APPLE_KEY_ID: 'your-apple-key-id'
+  APPLE_ISSUER_ID: 'your-apple-issuer-id'
+
+steps:
+- task: UseDotNet@2
+  inputs:
+    packageType: 'sdk'
+    version: '8.x' # .NET 8
+    installationPath: $(Agent.ToolsDirectory)/dotnet
+
+- task: InstallAppleCertificate@2
+  inputs:
+    certSecureFile: 'your-apple-cert.p12'
+    certPwd: 'your-cert-password'
+    keychain: 'temp'
+    deleteCert: true
+
+- task: InstallAppleProvisioningProfile@1
+  inputs:
+    provisioningProfileLocation: 'secureFiles'
+    provProfileSecureFile: 'your-provisioning-profile.mobileprovision'
+
+- task: Bash@3
+  inputs:
+    targetType: 'inline'
+    script: sudo $AGENT_HOMEDIRECTORY/scripts/select-xamarin-sdk.sh 6_0_101
+  displayName: 'Select .NET MAUI SDK'
+
+# Restore Telerik NuGet packages for BlazorShared project
+- task: DotNetCoreCLI@2
+  displayName: 'Restore Telerik NuGet - BlazorShared'
+  inputs:
+    command: 'restore'
+    projects: 'MYAPP.BlazorShared/MYAPP.BlazorShared.csproj'
+    feedsToUse: 'config'
+    nugetConfigPath: 'nuget.config'
+    externalFeedCredentials: 'Telerik'
+
+# Restore Telerik NuGet packages for Maui project
+- task: DotNetCoreCLI@2
+  displayName: 'Restore Telerik NuGet - Maui'
+  inputs:
+    command: 'restore'
+    projects: 'MYPROJ1.Maui/MYPROJ1.Maui.csproj'
+    feedsToUse: 'config'
+    nugetConfigPath: 'nuget.config'
+    externalFeedCredentials: 'Telerik'
+
+# Prepare analysis configuration
+- task: SonarQubePrepare@5
+  inputs:
+    SonarQube: 'SonarQubeEndpoint' # Service connection name
+    scannerMode: 'MSBuild'
+    configMode: 'manual'
+    projectKey: 'your-project-key'
+    projectName: 'Your Project Name'
+    extraProperties: |
+      sonar.exclusions=**/obj/**,**/bin/**
+
+# Dotnet build task for iOS
+- task: DotNetCoreCLI@2
+  displayName: 'Build .NET MAUI Blazor Hybrid App for iOS'
+  inputs:
+    command: 'build'
+    projects: 'MYPROJ1.Maui/MYPROJ1.Maui.csproj'
+    feedsToUse: 'config'
+    nugetConfigPath: 'nuget.config'
+    externalFeedCredentials: 'Telerik'
+    arguments: '-c $(buildConfiguration) -f net8.0-ios'
+
+# Run code analysis again for iOS build
+- task: SonarQubeAnalyze@5
+
+# Publish Quality Gate result
+- task: SonarQubePublish@5
+  inputs:
+    pollingTimeoutSec: '300'
+
+- task: CopyFiles@2
+  inputs:
+    contents: '**/*.ipa'
+    targetFolder: '$(Build.ArtifactStagingDirectory)'
+
+- task: AppleAppStoreRelease@1
+  inputs:
+    authType: 'ApiKey'
+    apiKeyId: '$(APPLE_KEY_ID)'
+    apiIssuer: '$(APPLE_ISSUER_ID)'
+    apiKey: '$(secureFiles.your-apple-api-key.p8)'
+    appBundleId: '$(APP_BUNDLE_ID)'
+    appSpecificId: 'com.yourcompany.yourapp'
+    appPath: '$(Build.ArtifactStagingDirectory)/*.ipa'
+    releaseTrack: 'TestFlight'
+    shouldAutoRelease: true

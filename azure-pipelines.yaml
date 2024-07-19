@@ -1,0 +1,74 @@
+trigger:
+- master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Container registry service connection established in Azure DevOps
+  dockerRegistryServiceConnection: '<your-docker-registry-service-connection>'
+  imageRepository: '<your-app-name>'
+  containerRegistry: '<your-container-registry>'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+
+stages:
+- stage: Build
+  displayName: 'Build and push stage'
+  jobs:
+  - job: Build
+    displayName: 'Build and push job'
+    steps:
+    - task: Docker@2
+      displayName: 'Build and push an image to container registry'
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+
+- stage: Deploy
+  displayName: 'Deploy stage'
+  jobs:
+  - deployment: Deploy
+    displayName: 'Deploy to AKS'
+    environment: 'aks'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: Kubernetes@1
+            displayName: 'Deploy to Kubernetes cluster'
+            inputs:
+              connectionType: 'Azure Resource Manager'
+              azureSubscription: '<your-azure-subscription>'
+              azureResourceGroup: '<your-resource-group>'
+              kubernetesCluster: '<your-kubernetes-cluster>'
+              namespace: 'default'
+              command: 'apply'
+              useConfigurationFile: true
+              configuration: '$(Pipeline.Workspace)/manifests/deployment.yaml'
+          - task: Kubernetes@1
+            displayName: 'Deploy Service to Kubernetes cluster'
+            inputs:
+              connectionType: 'Azure Resource Manager'
+              azureSubscription: '<your-azure-subscription>'
+              azureResourceGroup: '<your-resource-group>'
+              kubernetesCluster: '<your-kubernetes-cluster>'
+              namespace: 'default'
+              command: 'apply'
+              useConfigurationFile: true
+              configuration: '$(Pipeline.Workspace)/manifests/service.yaml'
+          - task: Kubernetes@1
+            displayName: 'Deploy Ingress to Kubernetes cluster'
+            inputs:
+              connectionType: 'Azure Resource Manager'
+              azureSubscription: '<your-azure-subscription>'
+              azureResourceGroup: '<your-resource-group>'
+              kubernetesCluster: '<your-kubernetes-cluster>'
+              namespace: 'default'
+              command: 'apply'
+              useConfigurationFile: true
+              configuration: '$(Pipeline.Workspace)/manifests/ingress.yaml'

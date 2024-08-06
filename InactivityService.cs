@@ -11,50 +11,42 @@ public class InactivityService
     private readonly TimeSpan _inactivityTime = TimeSpan.FromMinutes(30);
     private DateTime _lastActivityTime;
 
-    public event Action OnInactivity;
+    public event Action OnLogout;
     public event Action OnWarning;
 
     public InactivityService(ILogger<InactivityService> logger)
     {
         _logger = logger;
-        _inactivityTimer = new Timer(_inactivityTime.TotalMilliseconds);
-        _warningTimer = new Timer(_warningTime.TotalMilliseconds);
-        _inactivityTimer.Elapsed += InactivityTimerElapsed;
+        _lastActivityTime = DateTime.Now;
+
+        _warningTimer = new Timer((_inactivityTime - _warningTime).TotalMilliseconds);
         _warningTimer.Elapsed += WarningTimerElapsed;
+
+        _inactivityTimer = new Timer(_inactivityTime.TotalMilliseconds);
+        _inactivityTimer.Elapsed += InactivityTimerElapsed;
     }
 
-    public void Start()
-    {
-        ResetTimers();
-    }
-
-    public void Stop()
-    {
-        _inactivityTimer.Stop();
-        _warningTimer.Stop();
-    }
-
-    public void ResetTimers()
+    public void ResetTimer()
     {
         _lastActivityTime = DateTime.Now;
-        _inactivityTimer.Stop();
-        _inactivityTimer.Start();
         _warningTimer.Stop();
-        _warningTimer.Interval = (_inactivityTime - _warningTime).TotalMilliseconds;
+        _inactivityTimer.Stop();
         _warningTimer.Start();
-        _logger.LogInformation("Timers reset at {Time}", _lastActivityTime);
-    }
-
-    private void InactivityTimerElapsed(object sender, ElapsedEventArgs e)
-    {
-        _logger.LogInformation("User inactive for {Time} minutes", _inactivityTime.TotalMinutes);
-        OnInactivity?.Invoke();
-        Stop();
+        _inactivityTimer.Start();
+        _logger.LogInformation("Inactivity timer reset.");
     }
 
     private void WarningTimerElapsed(object sender, ElapsedEventArgs e)
     {
-        _logger.LogInformation("Warning user of inactivity at {Time}", DateTime.Now);
+        _warningTimer.Stop();
         OnWarning?.Invoke();
+        _logger.LogInformation("Warning timer elapsed.");
+    }
+
+    private void InactivityTimerElapsed(object sender, ElapsedEventArgs e)
+    {
+        _inactivityTimer.Stop();
+        OnLogout?.Invoke();
+        _logger.LogInformation("Inactivity timer elapsed.");
     }
 }

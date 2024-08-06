@@ -1,0 +1,34 @@
+@page "/"
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+@inject InactivityService InactivityService
+
+<h3>Main</h3>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        InactivityService.OnWarning += ShowWarning;
+        InactivityService.OnLogout += Logout;
+        await JSRuntime.InvokeVoidAsync("detectUserActivity", DotNetObjectReference.Create(this));
+        InactivityService.ResetTimer();
+    }
+
+    [JSInvokable]
+    public void ResetTimer()
+    {
+        InactivityService.ResetTimer();
+    }
+
+    private void ShowWarning()
+    {
+        // Show warning to the user
+        Console.WriteLine("You will be logged out in 2 minutes due to inactivity.");
+    }
+
+    private void Logout()
+    {
+        // Perform logout operation
+        Console.WriteLine("Logging out due to inactivity.");
+    }
+}

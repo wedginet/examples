@@ -1,0 +1,35 @@
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public EventCallback OnKeepAlive { get; set; }
+    [Parameter] public EventCallback OnLogout { get; set; }
+
+    private async Task KeepAlive()
+    {
+        await OnKeepAlive.InvokeAsync();
+    }
+
+    private async Task Logout()
+    {
+        await OnLogout.InvokeAsync();
+    }
+}
+
+@if (Show)
+{
+    <div class="modal" style="display:block; background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Inactivity Warning</h5>
+                </div>
+                <div class="modal-body">
+                    <p>You will be logged out in 2 minutes due to inactivity. Please choose an option:</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" @onclick="KeepAlive">Keep Alive</button>
+                    <button class="btn btn-secondary" @onclick="Logout">Logout</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}

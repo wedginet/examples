@@ -9,6 +9,10 @@ pool:
 variables:
   buildConfiguration: 'Release'
   androidSdkVersion: '34'  # Targeting Android SDK 34
+  androidBuildToolVersion: '34.0.0'  # Targeting Android SDK 34.0.0
+  KeystoreAlias: 'keystore_alias'  # Set the alias name of your keystore
+  KeystorePassword: 'password'  # This will pull from the secret variable
+  KeystoreAliasPassword: 'password'  # This will pull from the secret variable
 
 steps:
 - task: UseDotNet@2
@@ -22,32 +26,89 @@ steps:
     version: '8.0.8'  # Using .NET 8.0.8 runtime
 
 - script: |
-    sudo $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-$(androidSdkVersion)" "build-tools;$(androidSdkVersion)"
-  displayName: 'Install Android SDK'
+    sudo $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-$(androidSdkVersion)" "build-tools;$(androidBuildToolVersion)"
+    sudo $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;$(androidBuildToolVersion)"
+  displayName: 'Install Android SDK and Build Tools'
 
 - task: DownloadSecureFile@1
   inputs:
-    secureFile: 'your-keystore-file.keystore'  # The secure file name of your keystore in Azure DevOps
+    secureFile: 'keystore_file.keystore'  # New simplified name
   displayName: 'Download Keystore File'
 
 - script: |
-    dotnet restore 'My.Maui/My.Maui.csproj'
-  displayName: 'Restore NuGet packages for My.Maui'
+    echo "Verifying Keystore File:"
+    ls -la "$(Agent.TempDirectory)"
+    ls -la "$(Agent.TempDirectory)/keystore_file.keystore"
+  displayName: 'Verify Keystore File'
+
+# New step: Increment version code
+- script: |
+    echo "Current working directory:"
+    pwd
+    echo "Listing files in the current directory:"
+    ls -la
+    echo "Attempting to locate AndroidManifest.xml:"
+    ls -la Platforms/Android/
+    
+    # Extracting versionCode
+    versionCode=$(grep -o 'versionCode [0-9]\+' Platforms/Android/AndroidManifest.xml | grep -o '[0-9]\+')
+    echo "Current versionCode: $versionCode"
+
+    # Incrementing versionCode
+    newVersionCode=$((versionCode + 1))
+    echo "New versionCode: $newVersionCode"
+
+    # Replacing the versionCode in the AndroidManifest.xml
+    sed -i '' "s/versionCode $versionCode/versionCode $newVersionCode/" Platforms/Android/AndroidManifest.xml
+  displayName: 'Increment Android Version Code'
 
 - script: |
-    dotnet build 'My.Maui/My.Maui.csproj' --configuration $(buildConfiguration) --no-restore
-  displayName: 'Build My.Maui Project'
+    dotnet workload restore
+  displayName: 'Restore .NET MAUI Workloads'
 
 - script: |
-    dotnet publish 'My.Maui/My.Maui.csproj' -f:net8.0-android -c $(buildConfiguration) --no-restore \
+    dotnet restore 'myProj.csproj'
+  displayName: 'Restore NuGet packages for MyApp'
+
+#-- script: |
+#    dotnet build 'myProj.csproj' --configuration $(buildConfiguration) --no-restore
+#  displayName: 'Build MyApp Project'
+
+- script: |
+    dotnet build 'myProj.csproj' --configuration $(buildConfiguration) --framework net8.0-android
+  displayName: 'Build MyApp Project (Android only)'
+
+- script: |
+    if [ -f "$(Agent.TempDirectory)/keystore_file.keystore" ]; then
+      echo "Keystore exists."
+    else
+      echo "Keystore does not exist!"
+      exit 1
+    fi
+  displayName: 'Check if Keystore File Exists'
+
+- script: |
+    dotnet publish "myProj.csproj" -f:net8.0-android -c $(buildConfiguration) --no-restore \
     -p:AndroidSdkVersion=$(androidSdkVersion) \
-    -p:AndroidPackageFormat=aab \
-    -p:AndroidKeyStore=true \
-    -p:AndroidSigningKeyAlias=$(KeystoreAlias) \
-    -p:AndroidSigningKeyPass=$(KeystoreAliasPassword) \
-    -p:AndroidSigningStorePass=$(KeystorePassword) \
-    -p:AndroidSigningStore=$(Agent.TempDirectory)/your-keystore-file.keystore  # Reference to the downloaded keystore file
-  displayName: 'Publish My.Maui Android App Bundle'
+    -p:AndroidPackageFormat=aab
+  displayName: 'Publish MyApp Android App Bundle Without Signing'
+
+- script: |
+    echo "Listing contents of the output directory:"
+    ls -la bin/Release/net8.0-android/
+  displayName: 'Verify APK/AAB Location'
+
+- script: |
+    echo "Listing contents of the build directory recursively:"
+    find bin/Release/net8.0-android/ -type f
+  displayName: 'List All Files in Output Directory'
+
+- script: |
+    APK_PATH=$(find bin/Release/net8.0-android -name "*.apk" -print -quit)
+    jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore $(Agent.TempDirectory)/keystore_file.keystore -storepass $(KeystorePassword) -keypass $(KeystoreAliasPassword) "$APK_PATH" $(KeystoreAlias)
+    $ANDROID_HOME/build-tools/$(androidBuildToolVersion)/zipalign -v 4 "$APK_PATH" "aligned-$(basename "$APK_PATH")"
+    mv "aligned-$(basename "$APK_PATH")" "$APK_PATH"
+  displayName: 'Sign and Align APK Manually'
 
 - task: CopyFiles@2
   inputs:
@@ -60,21 +121,36 @@ steps:
     pathToPublish: '$(build.artifactStagingDirectory)/bundle'
     artifactName: 'aab'
   displayName: 'Publish AAB'
-
 - task: DownloadSecureFile@1
   inputs:
-    secureFile: 'google-play-publisher-key.json'  # Upload your Google Play JSON key as a secure file in Azure DevOps
+    secureFile: 'google-play-publisher-key.json'
   displayName: 'Download Google Play JSON key'
 
-- task: Bash@3
-  inputs:
-    targetType: 'inline'
-    script: |
-      echo "$(GOOGLE_PLAY_JSON_KEY)" > $(Build.SourcesDirectory)/google-play-publisher-key.json
-      gcloud auth activate-service-account --key-file=$(Build.SourcesDirectory)/google-play-publisher-key.json
-      gcloud config set project your-google-play-project-id
-      gcloud --quiet alpha androidpublisher edits tracks update --package-name your.package.name --track alpha --bundle "$(Build.SourcesDirectory)/bundle/your-app.aab"
-  displayName: 'Upload to Google Play'
-  env:
-    GOOGLE_PLAY_JSON_KEY: $(Build.SourcesDirectory)/google-play-publisher-key.json
+- script: |
+    echo "Copying Google Play JSON key to the correct location."
+    cp "$(Agent.TempDirectory)/google-play-publisher-key.json" "$(Build.SourcesDirectory)/google-play-publisher-key.json"
+  displayName: 'Copy Google Play JSON Key'
 
+- script: |
+    echo "Verifying the JSON key file exists in the expected location:"
+    ls -la $(Build.SourcesDirectory)/google-play-publisher-key.json
+  displayName: 'Verify Google Play JSON Key Location'
+
+#- script: |
+#    curl https://sdk.cloud.google.com | bash > /dev/null
+#    echo "source $HOME/google-cloud-sdk/path.bash.inc" >> $HOME/.bashrc
+#    echo "source $HOME/google-cloud-sdk/completion.bash.inc" >> $HOME/.bashrc
+#    source $HOME/google-cloud-sdk/path.bash.inc
+#    gcloud components install alpha --quiet
+#    gcloud components install beta --quiet
+#    gcloud auth activate-service-account --key-file=$(Build.SourcesDirectory)/google-play-publisher-key.json
+#    gcloud config set project your-google-play-project-id
+#    gcloud --quiet alpha androidpublisher edits tracks update --package-name network.MyApp.MyApp --track alpha --bundle "$(Build.SourcesDirectory)/bundle/your-app.aab"
+#  displayName: 'Install Google Cloud SDK and Upload to Google Play'
+- task: GooglePlayPromote@3
+  inputs:
+    authType: 'JsonFile'
+    serviceAccountKey: '$(Build.SourcesDirectory)/google-play-publisher-key.json'
+    packageName: 'network.MyApp.MyApp'
+    sourceTrack: 'internal'
+    destinationTrack: 'beta'

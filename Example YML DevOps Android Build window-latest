@@ -1,161 +1,141 @@
-###Android Build example yml using Windows-latest
 trigger:
-- main
+  branches:
+    include:
+      - master  # Targeting the master branch
 
 pool:
-  vmImage: 'windows-latest'
+  vmImage: 'windows-latest'  # Using Windows for the build
 
 variables:
   buildConfiguration: 'Release'
-  ANDROID_KEYSTORE: 'android.keystore'
-  ANDROID_KEYSTORE_PASSWORD: 'your-keystore-password'
-  ANDROID_KEY_ALIAS: 'your-key-alias'
-  ANDROID_KEY_PASSWORD: 'your-key-password'
+  androidSdkVersion: '34'  # Targeting Android SDK 34
+  androidBuildToolVersion: '34.0.0'  # Targeting Android SDK 34.0.0
+  KeystoreAlias: 'KeystoreAlias'  # Set the alias name of your keystore
+  KeystorePassword: 'xxxxxxxx'  # This will pull from the secret variable
+  KeystoreAliasPassword: 'xxxxxxxxx'  # This will pull from the secret variable
 
 steps:
 - task: UseDotNet@2
   inputs:
     packageType: 'sdk'
-    version: '8.x' # .NET 8
-    installationPath: $(Agent.ToolsDirectory)/dotnet
+    version: '8.0.401'  # Using .NET 8.0.401 SDK
+
+- task: UseDotNet@2
+  inputs:
+    packageType: 'runtime'
+    version: '8.0.8'  # Using .NET 8.0.8 runtime
+
+- powershell: |
+    & "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat" "platforms;android-$(androidSdkVersion)" "build-tools;$(androidBuildToolVersion)"
+  displayName: 'Install Android SDK and Build Tools'
 
 - task: DownloadSecureFile@1
-  name: downloadKeystore
   inputs:
-    secureFile: 'android.keystore'
+    secureFile: 'KeystoreFileName.keystore'  # New simplified name
+  displayName: 'Download Keystore File'
 
-- task: PowerShell@2
-  inputs:
-    targetType: 'inline'
-    script: |
-      mkdir -p $Env:USERPROFILE\.local\share
-      Copy-Item -Path $(downloadKeystore.secureFilePath) -Destination $Env:USERPROFILE\.local\share\$(ANDROID_KEYSTORE)
-  displayName: 'Copy Keystore'
+- powershell: |
+    Write-Host "Verifying Keystore File:"
+    Get-ChildItem -Path "$(Agent.TempDirectory)"
+    Get-ChildItem -Path "$(Agent.TempDirectory)\KeystoreFileName.keystore"
+  displayName: 'Verify Keystore File'
 
-# Restore Telerik NuGet packages for BlazorShared project
-- task: DotNetCoreCLI@2
-  displayName: 'Restore Telerik NuGet - BlazorShared'
-  inputs:
-    command: 'restore'
-    projects: 'MYAPP.BlazorShared/MYAPP.BlazorShared.csproj'
-    feedsToUse: 'config'
-    nugetConfigPath: 'nuget.config'
-    externalFeedCredentials: 'Telerik'
+# New step: Increment version code
+- powershell: |
+    Write-Host "Current working directory:"
+    Get-Location
+    Write-Host "Listing files in the current directory:"
+    Get-ChildItem -Path "."
 
-# Restore Telerik NuGet packages for Maui project
-- task: DotNetCoreCLI@2
-  displayName: 'Restore Telerik NuGet - Maui'
-  inputs:
-    command: 'restore'
-    projects: 'MYPROJ1.Maui/MYPROJ1.Maui.csproj'
-    feedsToUse: 'config'
-    nugetConfigPath: 'nuget.config'
-    externalFeedCredentials: 'Telerik'
+    Write-Host "Attempting to locate AndroidManifest.xml:"
+    Get-ChildItem -Path "Platforms/Android/"
 
-# Prepare analysis configuration
-- task: SonarQubePrepare@5
-  inputs:
-    SonarQube: 'SonarQubeEndpoint' # Service connection name
-    scannerMode: 'MSBuild'
-    configMode: 'manual'
-    projectKey: 'your-project-key'
-    projectName: 'Your Project Name'
-    extraProperties: |
-      sonar.exclusions=**/obj/**,**/bin/**
+    # Extracting versionCode
+    $versionCode = (Select-String -Path "Platforms/Android/AndroidManifest.xml" -Pattern 'versionCode \d+').Matches[0].Value.Split(" ")[1]
+    Write-Host "Current versionCode: $versionCode"
 
-# Dotnet build task for Android
-- task: DotNetCoreCLI@2
-  displayName: 'Build .NET MAUI Blazor Hybrid App for Android'
-  inputs:
-    command: 'build'
-    projects: 'MYPROJ1.Maui/MYPROJ1.Maui.csproj'
-    feedsToUse: 'config'
-    nugetConfigPath: 'nuget.config'
-    externalFeedCredentials: 'Telerik'
-    arguments: '-c $(buildConfiguration) -f net8.0-android'
+    # Incrementing versionCode
+    $newVersionCode = [int]$versionCode + 1
+    Write-Host "New versionCode: $newVersionCode"
 
-# Run code analysis
-- task: SonarQubeAnalyze@5
+    # Replacing the versionCode in the AndroidManifest.xml
+    (Get-Content "Platforms/Android/AndroidManifest.xml") -replace "versionCode $versionCode", "versionCode $newVersionCode" | Set-Content "Platforms/Android/AndroidManifest.xml"
+  displayName: 'Increment Android Version Code'
+
+- script: |
+    dotnet workload restore
+  displayName: 'Restore .NET MAUI Workloads'
+
+- script: |
+    dotnet restore 'myapp.csproj'
+  displayName: 'Restore NuGet packages for myapp'
+
+- script: |
+    dotnet build 'myapp.csproj' --configuration $(buildConfiguration) --framework net8.0-android
+  displayName: 'Build myapp Project (Android only)'
+
+- powershell: |
+    if (Test-Path "$(Agent.TempDirectory)\KeystoreFileName.keystore") {
+      Write-Host "Keystore exists."
+    } else {
+      Write-Host "Keystore does not exist!"
+      exit 1
+    }
+  displayName: 'Check if Keystore File Exists'
+
+- script: |
+    dotnet publish "myapp.csproj" -f:net8.0-android -c $(buildConfiguration) --no-restore \
+    -p:AndroidSdkVersion=$(androidSdkVersion) \
+    -p:AndroidPackageFormat=aab
+  displayName: 'Publish myapp Android App Bundle Without Signing'
+
+- powershell: |
+    Write-Host "Listing contents of the output directory:"
+    Get-ChildItem -Path "bin/Release/net8.0-android/"
+  displayName: 'Verify APK/AAB Location'
+
+- powershell: |
+    Write-Host "Listing contents of the build directory recursively:"
+    Get-ChildItem -Path "bin/Release/net8.0-android/" -Recurse
+  displayName: 'List All Files in Output Directory'
+
+- powershell: |
+    $APK_PATH = Get-ChildItem -Path "bin/Release/net8.0-android" -Filter "*.apk" | Select-Object -First 1
+    & "$env:ANDROID_HOME\build-tools\$env:androidBuildToolVersion\apksigner.bat" sign --ks "$(Agent.TempDirectory)\KeystoreFileName.keystore" --ks-pass pass:$(KeystorePassword) --key-pass pass:$(KeystoreAliasPassword) --ks-key-alias $(KeystoreAlias) "$APK_PATH"
+    & "$env:ANDROID_HOME\build-tools\$env:androidBuildToolVersion\zipalign.bat" -v 4 "$APK_PATH" "aligned-$($APK_PATH.Name)"
+    Move-Item "aligned-$($APK_PATH.Name)" "$APK_PATH"
+  displayName: 'Sign and Align APK Manually'
 
 - task: CopyFiles@2
   inputs:
-    contents: '**/*.apk'
-    targetFolder: '$(Build.ArtifactStagingDirectory)'
+    contents: '**/*.aab'
+    targetFolder: '$(build.artifactStagingDirectory)/bundle'
+  displayName: 'Copy AAB to artifacts'
 
-- task: UsePythonVersion@0
+- task: PublishBuildArtifacts@1
   inputs:
-    versionSpec: '3.x'
-    addToPath: true
-
-- task: UsePythonScript@0
-  inputs:
-    scriptSource: 'inline'
-    script: |
-      pip install --upgrade pip
-      pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
-  displayName: 'Install Google API Python Client'
+    pathToPublish: '$(build.artifactStagingDirectory)/bundle'
+    artifactName: 'aab'
+  displayName: 'Publish AAB'
 
 - task: DownloadSecureFile@1
   inputs:
-    secureFile: 'google-play-api-key.json'
+    secureFile: 'google-play-publisher-key.json'
+  displayName: 'Download Google Play JSON key'
 
-- task: PowerShell@2
+- powershell: |
+    Write-Host "Copying Google Play JSON key to the correct location."
+    Copy-Item "$(Agent.TempDirectory)\google-play-publisher-key.json" "$(Build.SourcesDirectory)\google-play-publisher-key.json"
+  displayName: 'Copy Google Play JSON Key'
+
+- powershell: |
+    Write-Host "Verifying the JSON key file exists in the expected location:"
+    Get-ChildItem -Path "$(Build.SourcesDirectory)\google-play-publisher-key.json"
+  displayName: 'Verify Google Play JSON Key Location'
+
+- task: GooglePlayPromote@3
   inputs:
-    targetType: 'inline'
-    script: echo ${GOOGLE_PLAY_SERVICE_ACCOUNT} > $(Agent.TempDirectory)/google-play-api-key.json
-  displayName: 'Create Google Play Service Account Key File'
-  env:
-    GOOGLE_PLAY_SERVICE_ACCOUNT: $(secureFiles.google-play-api-key.json)
-
-- task: PowerShell@2
-  inputs:
-    targetType: 'inline'
-    script: |
-      gcloud auth activate-service-account --key-file=$(Agent.TempDirectory)/google-play-api-key.json
-      gcloud --quiet config set project your-google-cloud-project-id
-  displayName: 'Authenticate with Google Cloud'
-
-- task: UsePythonScript@0
-  inputs:
-    scriptSource: 'inline'
-    script: |
-      APK_FILE=$(Build.ArtifactStagingDirectory)/*.apk
-      PACKAGE_NAME=your.package.name
-      TRACK=production
-
-      from googleapiclient.discovery import build
-      from google.oauth2 import service_account
-      import os
-
-      credentials = service_account.Credentials.from_service_account_file(os.getenv('GOOGLE_APPLICATION_CREDENTIALS'))
-      service = build('androidpublisher', 'v3', credentials=credentials)
-
-      package_name = os.getenv('PACKAGE_NAME')
-      edit_request = service.edits().insert(body={}, packageName=package_name)
-      edit_response = edit_request.execute()
-      edit_id = edit_response['id']
-
-      apk_file = os.getenv('APK_FILE')
-      apk_response = service.edits().apks().upload(
-          editId=edit_id,
-          packageName=package_name,
-          media_body=apk_file
-      ).execute()
-
-      version_code = apk_response['versionCode']
-
-      track_response = service.edits().tracks().update(
-          editId=edit_id,
-          track=os.getenv('TRACK'),
-          packageName=package_name,
-          body={u'releases': [{u'versionCodes': [str(version_code)], u'status': u'completed'}]}
-      ).execute()
-
-      commit_request = service.edits().commit(editId=edit_id, packageName=package_name).execute()
-      print(f'Successfully uploaded {apk_file} to Google Play Store with version code {version_code}.')
-  displayName: 'Upload APK to Google Play Store'
-  env:
-    GOOGLE_APPLICATION_CREDENTIALS: $(Agent.TempDirectory)/google-play-api-key.json
-    PACKAGE_NAME: your.package.name
-    TRACK: production
-    APK_FILE: $(Build.ArtifactStagingDirectory)/*.apk
+    authType: 'JsonFile'
+    serviceAccountKey: '$(Build.SourcesDirectory)/google-play-publisher-key.json'
+    packageName: 'network.myapp.myapp'
+    sourceTrack:

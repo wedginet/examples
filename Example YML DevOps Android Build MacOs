@@ -10,9 +10,9 @@ variables:
   buildConfiguration: 'Release'
   androidSdkVersion: '34'  # Targeting Android SDK 34
   androidBuildToolVersion: '34.0.0'  # Targeting Android SDK 34.0.0
-  KeystoreAlias: 'keystore_alias'  # Set the alias name of your keystore
-  KeystorePassword: 'password'  # This will pull from the secret variable
-  KeystoreAliasPassword: 'password'  # This will pull from the secret variable
+  KeystoreAlias: 'KeystoreAlias'  # Set the alias name of your keystore
+  KeystorePassword: 'xxxxxxxx'  # This will pull from the secret variable
+  KeystoreAliasPassword: 'xxxxxxxxx'  # This will pull from the secret variable
 
 steps:
 - task: UseDotNet@2
@@ -32,13 +32,13 @@ steps:
 
 - task: DownloadSecureFile@1
   inputs:
-    secureFile: 'keystore_file.keystore'  # New simplified name
+    secureFile: 'KeystoreFileName.keystore'  # New simplified name
   displayName: 'Download Keystore File'
 
 - script: |
     echo "Verifying Keystore File:"
     ls -la "$(Agent.TempDirectory)"
-    ls -la "$(Agent.TempDirectory)/keystore_file.keystore"
+    ls -la "$(Agent.TempDirectory)/KeystoreFileName.keystore"
   displayName: 'Verify Keystore File'
 
 # New step: Increment version code
@@ -67,19 +67,19 @@ steps:
   displayName: 'Restore .NET MAUI Workloads'
 
 - script: |
-    dotnet restore 'myProj.csproj'
+    dotnet restore 'MyApp.csproj'
   displayName: 'Restore NuGet packages for MyApp'
 
 #-- script: |
-#    dotnet build 'myProj.csproj' --configuration $(buildConfiguration) --no-restore
-#  displayName: 'Build MyApp Project'
+#    dotnet build 'MyApp.csproj' --configuration $(buildConfiguration) --no-restore   
+#  displayName: 'Build MyApp Project (All)'
 
 - script: |
-    dotnet build 'myProj.csproj' --configuration $(buildConfiguration) --framework net8.0-android
+    dotnet build 'MyApp.csproj' --configuration $(buildConfiguration) --framework net8.0-android
   displayName: 'Build MyApp Project (Android only)'
 
 - script: |
-    if [ -f "$(Agent.TempDirectory)/keystore_file.keystore" ]; then
+    if [ -f "$(Agent.TempDirectory)/KeystoreFileName.keystore" ]; then
       echo "Keystore exists."
     else
       echo "Keystore does not exist!"
@@ -88,7 +88,7 @@ steps:
   displayName: 'Check if Keystore File Exists'
 
 - script: |
-    dotnet publish "myProj.csproj" -f:net8.0-android -c $(buildConfiguration) --no-restore \
+    dotnet publish "MyApp.csproj" -f:net8.0-android -c $(buildConfiguration) --no-restore \
     -p:AndroidSdkVersion=$(androidSdkVersion) \
     -p:AndroidPackageFormat=aab
   displayName: 'Publish MyApp Android App Bundle Without Signing'
@@ -105,7 +105,7 @@ steps:
 
 - script: |
     APK_PATH=$(find bin/Release/net8.0-android -name "*.apk" -print -quit)
-    jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore $(Agent.TempDirectory)/keystore_file.keystore -storepass $(KeystorePassword) -keypass $(KeystoreAliasPassword) "$APK_PATH" $(KeystoreAlias)
+    jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore $(Agent.TempDirectory)/Sojourn_Network_NFP.keystore -storepass $(KeystorePassword) -keypass $(KeystoreAliasPassword) "$APK_PATH" $(KeystoreAlias)
     $ANDROID_HOME/build-tools/$(androidBuildToolVersion)/zipalign -v 4 "$APK_PATH" "aligned-$(basename "$APK_PATH")"
     mv "aligned-$(basename "$APK_PATH")" "$APK_PATH"
   displayName: 'Sign and Align APK Manually'
@@ -136,21 +136,10 @@ steps:
     ls -la $(Build.SourcesDirectory)/google-play-publisher-key.json
   displayName: 'Verify Google Play JSON Key Location'
 
-#- script: |
-#    curl https://sdk.cloud.google.com | bash > /dev/null
-#    echo "source $HOME/google-cloud-sdk/path.bash.inc" >> $HOME/.bashrc
-#    echo "source $HOME/google-cloud-sdk/completion.bash.inc" >> $HOME/.bashrc
-#    source $HOME/google-cloud-sdk/path.bash.inc
-#    gcloud components install alpha --quiet
-#    gcloud components install beta --quiet
-#    gcloud auth activate-service-account --key-file=$(Build.SourcesDirectory)/google-play-publisher-key.json
-#    gcloud config set project your-google-play-project-id
-#    gcloud --quiet alpha androidpublisher edits tracks update --package-name network.MyApp.MyApp --track alpha --bundle "$(Build.SourcesDirectory)/bundle/your-app.aab"
-#  displayName: 'Install Google Cloud SDK and Upload to Google Play'
 - task: GooglePlayPromote@3
   inputs:
     authType: 'JsonFile'
     serviceAccountKey: '$(Build.SourcesDirectory)/google-play-publisher-key.json'
-    packageName: 'network.MyApp.MyApp'
+    packageName: 'com.company.MyApp'
     sourceTrack: 'internal'
     destinationTrack: 'beta'

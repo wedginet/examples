@@ -1,0 +1,65 @@
+@page "/contacttypes"
+@using System.Linq
+
+@* Models *@
+@code {
+    public class ContactType
+    {
+        public Guid Id { get; set; }
+        public string EAuthId { get; set; }
+        public DateTime DeletedOn { get; set; }
+        public Guid ContactId { get; set; }
+        public string Name { get; set; }
+    }
+
+    private List<ContactType> _ContactTypesForContact = new List<ContactType>();
+    private List<ContactType> _PossibleContactTypes = new List<ContactType>();
+    private ContactType _selectedContactType;
+
+    protected override void OnInitialized()
+    {
+        // Initialize your lists here for demonstration purposes
+        // In a real application, these would likely be loaded from a service
+        _PossibleContactTypes = new List<ContactType>
+        {
+            new ContactType { Id = Guid.NewGuid(), Name = "Email" },
+            new ContactType { Id = Guid.NewGuid(), Name = "Phone" },
+            new ContactType { Id = Guid.NewGuid(), Name = "Fax" }
+        };
+
+        _ContactTypesForContact = new List<ContactType>();
+    }
+
+    private void AddContactType()
+    {
+        if (_selectedContactType != null && !_ContactTypesForContact.Any(ct => ct.Id == _selectedContactType.Id))
+        {
+            _ContactTypesForContact.Add(_selectedContactType);
+            _selectedContactType = null; // Reset the selected contact type after adding
+            StateHasChanged();
+        }
+    }
+}
+
+@* UI *@
+<div>
+    <h3>Selected Contact Types</h3>
+    <div style="display: flex;">
+        @foreach (var contactType in _ContactTypesForContact)
+        {
+            <div style="margin-right: 10px;">
+                <span>@contactType.Name</span>
+            </div>
+        }
+    </div>
+</div>
+
+<div style="margin-top: 20px;">
+    <h3>Add New Contact Type</h3>
+    <TelerikDropDownList Data="@_PossibleContactTypes"
+                         TextField="Name"
+                         ValueField="Id"
+                         @bind-Value="_selectedContactType"
+                         Placeholder="Select Contact Type" />
+    <button class="btn btn-primary" @onclick="AddContactType" disabled="@(_selectedContactType == null)">Add</button>
+</div>

@@ -1,34 +1,35 @@
-@page "/"
-@using Microsoft.JSInterop
-@inject IJSRuntime JSRuntime
-@inject InactivityService InactivityService
-
-<h3>Main</h3>
-
-@code {
-    protected override async Task OnInitializedAsync()
-    {
-        InactivityService.OnWarning += ShowWarning;
-        InactivityService.OnLogout += Logout;
-        await JSRuntime.InvokeVoidAsync("detectUserActivity", DotNetObjectReference.Create(this));
-        InactivityService.ResetTimer();
-    }
-
-    [JSInvokable]
-    public void ResetTimer()
-    {
-        InactivityService.ResetTimer();
-    }
-
-    private void ShowWarning()
-    {
-        // Show warning to the user
-        Console.WriteLine("You will be logged out in 2 minutes due to inactivity.");
-    }
-
-    private void Logout()
-    {
-        // Perform logout operation
-        Console.WriteLine("Logging out due to inactivity.");
-    }
-}
+<div class="container">
+    <div class="card mt-3">
+        <div class="card-header">
+            <h4>Session Information</h4>
+        </div>
+        <div class="card-body">
+            <ul class="list-group">
+                <li class="list-group-item">
+                    <strong>Build Version:</strong> @_sessionService.BuildVersion
+                </li>
+                <li class="list-group-item">
+                    <strong>Name:</strong> @_sessionService.Name
+                </li>
+                <li class="list-group-item">
+                    <strong>URL:</strong> <a href="@_sessionService.Url">@_sessionService.Url</a>
+                </li>
+                <li class="list-group-item">
+                    <strong>Is Throttled:</strong> @( _sessionService.IsThrottled ? "Yes" : "No" )
+                </li>
+                <li class="list-group-item">
+                    <strong>Is Mobile:</strong> @( _sessionService.IsMobile ? "Yes" : "No" )
+                </li>
+                <li class="list-group-item">
+                    <strong>Is Connected:</strong> @( _sessionService.IsConnected ? "Yes" : "No" )
+                </li>
+                <li class="list-group-item">
+                    <strong>Is Authenticated:</strong> @( _sessionService.IsAuthenticated ? "Yes" : "No" )
+                </li>
+                <li class="list-group-item">
+                    <strong>Is Online:</strong> @( _sessionService.IsOnline ? "Yes" : "No" )
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>

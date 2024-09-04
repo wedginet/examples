@@ -1,0 +1,44 @@
+<EditForm Model="@address">
+    <div>
+        <label for="state">State</label>
+        <select id="state" @bind="address.State" class="form-control" @onchange="StateChanged">
+            <option value="">Select State</option>
+            @foreach (var state in States)
+            {
+                <option value="@state.Abbreviation">@state.Name</option>
+            }
+        </select>
+    </div>
+
+    <div>
+        <label for="county">County</label>
+        <select id="county" @bind="address.County" class="form-control">
+            <option value="">Select County</option>
+            @foreach (var county in GetCounties())
+            {
+                <option value="@county">@county</option>
+            }
+        </select>
+    </div>
+
+    <div>
+        <label for="country">Country</label>
+        <select id="country" @bind="address.Country" class="form-control">
+            <option value="">Select Country</option>
+            @foreach (var country in Countries)
+            {
+                <option value="@country">@country</option>
+            }
+        </select>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Submit</button>
+</EditForm>
+
+@code {
+    private void StateChanged(ChangeEventArgs e)
+    {
+        address.State = e.Value.ToString();
+        address.County = null;  // Reset county when state changes
+    }
+}

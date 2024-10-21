@@ -1,0 +1,71 @@
+public async Task<Dictionary<string, string>> GetUserClaimsWithAccessTokenAsync(string accessToken)
+{
+    // Call the UserInfo endpoint with the access token
+    var userInfoEndpoint = $"{config["Authentication:OpenIdIssuer"]}/userinfo";
+
+    using var client = new HttpClient();
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+    var response = await client.GetAsync(userInfoEndpoint);
+
+    if (!response.IsSuccessStatusCode)
+    {
+        // Handle error
+        return null;
+    }
+
+    // Deserialize the response
+    var content = await response.Content.ReadAsStringAsync();
+    var claims = JsonConvert.DeserializeObject<Dictionary<string, string>>(content);
+
+    return claims;
+}
+
+
+public async Task<Dictionary<string, string>> LoginWithWebAuthenticatorAsync()
+{
+    var authUrl = new Uri($"{config["Authentication:OpenIdIssuer"]}/authorize?client_id={config["Authentication:ClientId"]}&response_type=code&scope={config["Authentication:Scope"]}&redirect_uri={config["Authentication:RedirectUri"]}");
+    var callbackUrl = new Uri(config["Authentication:RedirectUri"]);
+
+    try
+    {
+        // Open the system browser and wait for the result
+        WebAuthenticatorResult authResult = await WebAuthenticator.AuthenticateAsync(authUrl, callbackUrl);
+
+        // Extract the access token from the callback result
+        var accessToken = authResult.Properties["access_token"];
+
+        // Use the access token to get the user's claims
+        var userClaims = await GetUserClaimsWithAccessTokenAsync(accessToken);
+
+        return userClaims;  // Contains name, email, etc.
+    }
+    catch (TaskCanceledException)
+    {
+        // Handle login cancellation
+        return null;
+    }
+}
+
+
+var firstName = userClaims["given_name"];
+var lastName = userClaims["family_name"];
+var email = userClaims["email"];
+
+
+public Dictionary<string, string> DecodeJwtToken(string token)
+{
+    var handler = new JwtSecurityTokenHandler();
+    var jsonToken = handler.ReadToken(token) as JwtSecurityToken;
+
+    var claims = new Dictionary<string, string>();
+    foreach (var claim in jsonToken.Claims)
+    {
+        claims[claim.Type] = claim.Value;
+    }
+
+    return claims;
+}
+
+var userClaims = DecodeJwtToken(accessToken);
+

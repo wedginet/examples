@@ -1,65 +1,70 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
-using System.Security.Cryptography;
-using Microsoft.IdentityModel.Tokens;
-
-[ApiController]
-[Route("api/authentication")]
-public class AuthenticationController : ControllerBase
+public class Program
 {
-    private readonly TokenService _tokenService;
-    private readonly TokenValidationParameters _tokenValidationParameters;
-
-    public AuthenticationController(IOptions<AuthenticationSettings> authSettings)
+    public static void Main(string[] args)
     {
-        // Retrieve RSA private and public keys from appsettings.json
-        var rsaPrivateKeyBase64 = authSettings.Value.RsaPrivateKey;
-        var rsaPrivateKeyBytes = Convert.FromBase64String(rsaPrivateKeyBase64);
+        var builder = WebApplication.CreateBuilder(args);
 
-        var rsaPublicKeyBase64 = authSettings.Value.RsaPublicKey;
-        var rsaPublicKeyBytes = Convert.FromBase64String(rsaPublicKeyBase64);
+        // Add services to the container
+        builder.Services.AddControllers();
 
-        // Initialize RSA and import the private key
-        using (var rsa = RSA.Create())
-        {
-            rsa.ImportRSAPrivateKey(rsaPrivateKeyBytes, out _);  // Import private key
-            _tokenService = new TokenService(rsa);               // Pass RSA to TokenService
-        }
-
-        // Initialize the token validation parameters (for verifying tokens)
-        _tokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = authSettings.Value.Issuer,
-            ValidAudience = authSettings.Value.Audience,
-            IssuerSigningKey = new RsaSecurityKey(RSA.Create()) // Use RSA public key for validation
-        };
-    }
-
-    [HttpPost("exchange")]
-    public IActionResult ExchangeToken([FromBody] TokenRequest request)
-    {
-        var (validatedToken, claims) = ValidateIdentityToken(request);
-
-        try
-        {
-            if (validatedToken != null && claims != null)
+        // Add Authentication services and configure JWT Bearer Authentication
+        builder.Services.AddAuthentication("Bearer")
+            .AddJwtBearer("Bearer", options =>
             {
-                if (claims.Identity.IsAuthenticated)
+                options.Authority = builder.Configuration["Authentication:OpenIdIssuer"];  // Authority of the OpenID provider
+                options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
                 {
-                    string userId = claims.Identity.Name;
-                    var newAccessToken = _tokenService.GenerateAccessToken(userId);  // Generate token
-                    return Ok(new { newAccessToken });
-                }
-            }
-            return Unauthorized();
-        }
-        catch (Exception ex)
+                    ValidateIssuer = true,
+                    ValidateAudience = false,  // Set to true if your tokens have an audience
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true
+                };
+            });
+
+        // Add Authorization policies if needed
+        builder.Services.AddAuthorization(options =>
         {
-            return BadRequest(new { Error = ex.Message });
-        }
+            options.AddPolicy("TokenValidation", policy =>
+                policy.RequireAuthenticatedUser());
+        });
+
+        var app = builder.Build();
+
+        // Enable Authentication & Authorization middleware
+        app.UseAuthentication();
+        app.UseAuthorization();
+
+        app.MapControllers();
+
+        app.Run();
     }
 }
+
+
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.Linq;
+
+[ApiController]
+[Route("api/[controller]")]
+public class TokenTestController : ControllerBase
+{
+    // This endpoint is protected and requires a validated token
+    [HttpGet("test")]
+    [Authorize(Policy = "TokenValidation")]  // Ensure only authenticated users can access
+    public IActionResult GetNameFromToken()
+    {
+        // Retrieve the name claim from the token
+        var nameClaim = User.Claims.FirstOrDefault(c => c.Type == "name")?.Value;
+
+        if (string.IsNullOrEmpty(nameClaim))
+        {
+            return Unauthorized("Token does not contain a valid 'name' claim");
+        }
+
+        return Ok(new { Name = nameClaim });
+    }
+}
+
+
+

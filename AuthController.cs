@@ -63,4 +63,35 @@ public class ProtectedController : ControllerBase
 }
 
 
+public async Task<string> TestProtected(string accessToken)
+{
+    try
+    {
+        var path = "http://localhost:1234/api/protected";
+        
+        // Create a new HttpClient instance
+        using (var client = new HttpClient())
+        {
+            // Add the access token to the Authorization header
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            // Make the request
+            var response = await client.GetAsync(path);
+
+            // Ensure a successful response
+            response.EnsureSuccessStatusCode();
+
+            // Read the response content
+            var result = await response.Content.ReadAsStringAsync();
+
+            return result;  // Return the response from the protected API
+        }
+    }
+    catch (Exception ex)
+    {
+        // Handle any errors that occur
+        Console.WriteLine($"Error calling protected API: {ex.Message}");
+        return "Error";
+    }
+}
 

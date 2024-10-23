@@ -1,68 +1,64 @@
-public class Program
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Security.Cryptography;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Load RSA public key from appsettings.json
+var rsaPublicKey = Convert.FromBase64String(builder.Configuration["Authentication:RsaPublicKey"]);
+var rsa = RSA.Create();
+rsa.ImportRSAPublicKey(rsaPublicKey, out _);
+var rsaSecurityKey = new RsaSecurityKey(rsa);
+
+// Add services to the container.
+builder.Services.AddAuthentication(options =>
 {
-    public static void Main(string[] args)
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
     {
-        var builder = WebApplication.CreateBuilder(args);
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Authentication:Issuer"],  // Issuer validation
+        ValidAudience = builder.Configuration["Authentication:Audience"],  // Audience validation
+        IssuerSigningKey = rsaSecurityKey  // Use the RSA public key for token validation
+    };
+});
 
-        // Add services to the container
-        builder.Services.AddControllers();
+// Enable authorization
+builder.Services.AddAuthorization();
 
-        // Add Authentication services and configure JWT Bearer Authentication
-        builder.Services.AddAuthentication("Bearer")
-            .AddJwtBearer("Bearer", options =>
-            {
-                options.Authority = builder.Configuration["Authentication:OpenIdIssuer"];  // Authority of the OpenID provider
-                options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-                {
-                    ValidateIssuer = true,
-                    ValidateAudience = false,  // Set to true if your tokens have an audience
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true
-                };
-            });
+// Build the application
+var app = builder.Build();
 
-        // Add Authorization policies if needed
-        builder.Services.AddAuthorization(options =>
-        {
-            options.AddPolicy("TokenValidation", policy =>
-                policy.RequireAuthenticatedUser());
-        });
+// Use authentication and authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
 
-        var app = builder.Build();
+// Configure the HTTP request pipeline.
+app.MapControllers();
 
-        // Enable Authentication & Authorization middleware
-        app.UseAuthentication();
-        app.UseAuthorization();
+app.Run();
 
-        app.MapControllers();
-
-        app.Run();
-    }
-}
-
-
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using System.Linq;
 
 [ApiController]
-[Route("api/[controller]")]
-public class TokenTestController : ControllerBase
+[Route("api/protected")]
+public class ProtectedController : ControllerBase
 {
-    // This endpoint is protected and requires a validated token
-    [HttpGet("test")]
-    [Authorize(Policy = "TokenValidation")]  // Ensure only authenticated users can access
-    public IActionResult GetNameFromToken()
+    // This endpoint is locked down and requires a valid token to access
+    [HttpGet]
+    [Authorize]
+    public IActionResult GetUserName()
     {
-        // Retrieve the name claim from the token
-        var nameClaim = User.Claims.FirstOrDefault(c => c.Type == "name")?.Value;
+        // Extract the name claim from the token
+        var userName = User.Identity?.Name;
 
-        if (string.IsNullOrEmpty(nameClaim))
-        {
-            return Unauthorized("Token does not contain a valid 'name' claim");
-        }
-
-        return Ok(new { Name = nameClaim });
+        return Ok(new { Name = userName });
     }
 }
 

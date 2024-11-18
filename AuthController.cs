@@ -63,35 +63,46 @@ public class ProtectedController : ControllerBase
 }
 
 
-public async Task<string> TestProtected(string accessToken)
+using System.Net;
+using System.Net.Http;
+using Newtonsoft.Json;
+using System.Text;
+
+public async Task<string> CallGraphqlServiceAsync(GraphqlQuery query, string cookieValue, string graphqlEndpoint)
 {
     try
     {
-        var path = "http://localhost:1234/api/protected";
-        
-        // Create a new HttpClient instance
-        using (var client = new HttpClient())
+        // Create a CookieContainer to manage cookies
+        var cookieContainer = new CookieContainer();
+        var handler = new HttpClientHandler
         {
-            // Add the access token to the Authorization header
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            CookieContainer = cookieContainer,
+            UseCookies = true
+        };
 
-            // Make the request
-            var response = await client.GetAsync(path);
+        // Add the authentication cookie
+        var uri = new Uri(graphqlEndpoint);
+        cookieContainer.Add(uri, new Cookie("AuthenticationCookie", cookieValue));
 
-            // Ensure a successful response
+        using (var httpClient = new HttpClient(handler))
+        {
+            // Serialize the GraphQL query
+            var serializedQuery = JsonConvert.SerializeObject(query);
+            var content = new StringContent(serializedQuery, Encoding.UTF8, "application/json");
+
+            // Send the POST request
+            var response = await httpClient.PostAsync(graphqlEndpoint, content);
+
+            // Ensure the response status is successful
             response.EnsureSuccessStatusCode();
 
-            // Read the response content
-            var result = await response.Content.ReadAsStringAsync();
-
-            return result;  // Return the response from the protected API
+            // Return the response content as a string
+            return await response.Content.ReadAsStringAsync();
         }
     }
     catch (Exception ex)
     {
-        // Handle any errors that occur
-        Console.WriteLine($"Error calling protected API: {ex.Message}");
-        return "Error";
+        // Handle exceptions and log errors as needed
+        return "error";
     }
 }
-

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="210.07629mm"
+   height="209.18642mm"
+   viewBox="0 0 210.07629 209.18642"
+   version="1.1"
+   id="svg1"
+   xml:space="preserve"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"><defs
+     id="defs1" /><g
+     id="layer1"
+     transform="translate(-220.0382,0.0381)"><g
+       id="g41"><rect
+         style="fill:none;fill-opacity:1;stroke:none;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+         id="rect39"
+         width="210.07629"
+         height="209.18643"
+         x="220.03819"
+         y="-0.0381" /><path
+         id="path25"
+         style="fill:#f20000;fill-opacity:1;stroke:#000000;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+         d="m 250.8031,18.739341 a 11.543929,11.543929 0 0 0 -8.16281,3.381189 11.543929,11.543929 0 0 0 0,16.325618 l 66.11018,66.110172 -66.11018,66.11018 a 11.543929,11.543929 0 0 0 0,16.32613 11.543929,11.543929 0 0 0 16.32562,0 l 66.11017,-66.11018 66.11018,66.11018 a 11.543929,11.543929 0 0 0 16.32613,0 11.543929,11.543929 0 0 0 0,-16.32613 l -66.11017,-66.11018 66.11017,-66.110172 a 11.543929,11.543929 0 0 0 0,-16.325618 11.543929,11.543929 0 0 0 -16.32613,0 L 325.07608,88.230711 258.96591,22.12053 a 11.543929,11.543929 0 0 0 -8.16281,-3.381189 z" /><rect
+         style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:0.999999;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+         id="rect25"
+         width="162.34155"
+         height="42.113129"
+         x="243.90558"
+         y="83.498566" /><text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:condensed;font-size:22.5778px;line-height:19.003px;font-family:Bahnschrift;-inkscape-font-specification:'Bahnschrift Bold Condensed';text-align:center;letter-spacing:0px;word-spacing:0px;text-orientation:sideways;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+         x="325.1315"
+         y="112.55878"
+         id="text25"><tspan
+           id="tspan25"
+           style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:condensed;font-size:22.5778px;line-height:19.003px;font-family:Bahnschrift;-inkscape-font-specification:'Bahnschrift Bold Condensed';fill:#000000;fill-opacity:1;stroke-width:1"
+           x="325.1315"
+           y="112.55878">No Geocode Found</tspan></text><path
+         style="fill:none;fill-opacity:1;stroke:#f20000;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+         d="M 256.42747,115.91016 H 393.7934"
+         id="path32" /><path
+         style="fill:none;fill-opacity:1;stroke:#f20000;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+         d="M 256.42747,119.57414 H 393.7934"
+         id="path36" /><path
+         style="fill:none;fill-opacity:1;stroke:#f20000;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+         d="M 256.42747,93.200067 H 393.7934"
+         id="path37" /><path
+         style="fill:none;fill-opacity:1;stroke:#f20000;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+         d="M 256.42747,89.536087 H 393.7934"
+         id="path38" /></g></g></svg>

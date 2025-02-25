@@ -1,0 +1,153 @@
+Step 1: Create a Font Scale Service
+Add this to a service class (e.g., Services/FontScaleService.cs):
+
+public interface IFontScaleService
+{
+    float GetFontScale();
+}
+
+public class FontScaleService : IFontScaleService
+{
+    public float GetFontScale()
+    {
+#if ANDROID
+        return Android.App.Application.Context.Resources.Configuration.FontScale;
+#elif IOS
+        // iOS uses a dynamic type scale; approximate from preferred body font size
+        var preferredSize = UIKit.UIFont.PreferredFontForTextStyle(UIKit.UIFontTextStyle.Body).PointSize;
+        return (float)(preferredSize / 17.0); // 17.0 is default body font size in points
+#else
+        return 1.0f; // Default for other platforms (e.g., Windows)
+#endif
+    }
+}
+
+Register it in MauiProgram.cs:
+builder.Services.AddSingleton<IFontScaleService, FontScaleService>();
+
+Step 2: Check Font Size and Show Warning
+In your app’s startup logic (e.g., App.xaml.cs) or main page, check the font scale and show a warning if it’s too large.
+
+public partial class App : Application
+{
+    private readonly IFontScaleService _fontScaleService;
+    private const float FontScaleThreshold = 1.3f; // 130% of default size
+    private const string FontSizeWarningKey = "FontSizeWarningAcknowledged";
+
+    public App(IFontScaleService fontScaleService)
+    {
+        InitializeComponent();
+        _fontScaleService = fontScaleService;
+        MainPage = new MainPage();
+        CheckFontSize();
+    }
+
+    protected override void OnResume()
+    {
+        base.OnResume();
+        CheckFontSize(); // Re-check when app resumes
+    }
+
+    private async void CheckFontSize()
+    {
+        float fontScale = _fontScaleService.GetFontScale();
+        bool hasAcknowledged = Preferences.Get(FontSizeWarningKey, false);
+
+        if (fontScale > FontScaleThreshold && !hasAcknowledged)
+        {
+            bool acknowledged = await MainPage.DisplayAlert(
+                "Font Size Warning",
+                "Your system font size is set larger than recommended, which may affect the app's appearance. Please consider adjusting it in your device settings for the best experience.",
+                "OK",
+                "Ignore"
+            );
+
+            if (acknowledged)
+            {
+                Preferences.Set(FontSizeWarningKey, true); // User clicked "OK"
+            }
+        }
+    }
+}
+
+Step 3: Optional - Integrate with Blazor
+If you want the warning to appear in the Blazor UI rather than a native MAUI dialog:
+
+Pass the font scale to Blazor via a service or JavaScript interop.
+Display a Razor component conditionally.
+Example service (FontScaleBlazorService.cs):
+
+public class FontScaleBlazorService
+{
+    private readonly IFontScaleService _fontScaleService;
+    public event Action<float> OnFontScaleChecked;
+
+    public FontScaleBlazorService(IFontScaleService fontScaleService)
+    {
+        _fontScaleService = fontScaleService;
+    }
+
+    public void CheckFontScale()
+    {
+        float scale = _fontScaleService.GetFontScale();
+        OnFontScaleChecked?.Invoke(scale);
+    }
+}
+
+In your Blazor component (e.g., Main.razor):
+@inject FontScaleBlazorService FontScaleService
+@if (ShowWarning)
+{
+    <div class="warning">
+        <p>Your system font size is large and may affect the app. Adjust it in settings for the best experience.</p>
+        <button @onclick="AcknowledgeWarning">OK</button>
+    </div>
+}
+
+@code {
+    private bool ShowWarning = false;
+    private const float FontScaleThreshold = 1.3f;
+
+    protected override void OnInitialized()
+    {
+        FontScaleService.OnFontScaleChecked += HandleFontScale;
+        FontScaleService.CheckFontScale();
+    }
+
+    private void HandleFontScale(float scale)
+    {
+        bool hasAcknowledged = Preferences.Get("FontSizeWarningAcknowledged", false);
+        if (scale > FontScaleThreshold && !hasAcknowledged)
+        {
+            ShowWarning = true;
+        }
+    }
+
+    private void AcknowledgeWarning()
+    {
+        Preferences.Set("FontSizeWarningAcknowledged", true);
+        ShowWarning = false;
+    }
+}
+
+Add CSS in wwwroot/css/site.css:
+
+.warning {
+    position: fixed;
+    top: 20%;
+    left: 10%;
+    right: 10%;
+    background: #ffcc00;
+    padding: 20px;
+    text-align: center;
+    border-radius: 5px;
+}
+
+
+Register the service in MauiProgram.cs:
+builder.Services.AddSingleton<FontScaleBlazorService>();
+
+
+
+
+

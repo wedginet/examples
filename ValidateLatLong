@@ -1,0 +1,18 @@
+private bool IsValidLatOrLong(string latOrLong)
+{
+    if (string.IsNullOrWhiteSpace(latOrLong))
+        return false;
+
+    // Regex pattern for latitude between -90 and 90.
+    return Regex.IsMatch(latOrLong, @"^-?(?:90(?:\.0+)?|[0-8]?\d(?:\.\d+)?)$");
+}
+
+
+private bool IsValidLongitude(string lng)
+{
+    if (string.IsNullOrWhiteSpace(lng))
+        return false;
+
+    // Regex pattern for longitude between -180 and 180.
+    return Regex.IsMatch(lng, @"^-?(?:180(?:\.0+)?|1[0-7]\d(?:\.\d+)?|[0-9]{1,2}(?:\.\d+)?)$");
+}

@@ -1,0 +1,84 @@
+<MapView @ref="_mapView"
+         Style="width: 100%; height: 100%;"
+         Longitude="@Center.Longitude"
+         Latitude="@Center.Latitude"
+         Zoom="@Zoom"
+         Class="map-view"
+         OnViewRendered="OnViewRendered">
+  <Map>
+    <Basemap>
+      <BasemapStyle Name="ArcgisNavigation" />
+    </Basemap>
+    <GraphicsLayer @ref="_graphicsLayer" />
+  </Map>
+</MapView>
+
+@code {
+    [Parameter]
+    public List<Geocode>? Geocodes { get; set; }
+
+    [Parameter]
+    public LatLng? AddressCenter { get; set; }
+
+    // References to the map view and graphics layer.
+    private MapView? _mapView;
+    private GraphicsLayer? _graphicsLayer;
+
+    // Default zoom level and center.
+    public double Zoom { get; set; } = 10;
+    public LatLng Center { get; set; } = new LatLng { Latitude = 38.3833, Longitude = -139.84489 };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Update the center if an AddressCenter is provided.
+        if (AddressCenter is not null)
+        {
+            Center = AddressCenter;
+        }
+        await base.OnParametersSetAsync();
+    }
+
+    /// <summary>
+    /// Called when the MapView has rendered. Update the map graphics here.
+    /// </summary>
+    private async Task OnViewRendered()
+    {
+        await UpdateMapAsync();
+    }
+
+    /// <summary>
+    /// Updates the map by clearing previous graphics and adding new ones.
+    /// </summary>
+    private async Task UpdateMapAsync()
+    {
+        if (_graphicsLayer is null)
+            return;
+
+        // Clear existing graphics.
+        _graphicsLayer.ClearGraphics();
+
+        // Create and add a graphic for the center location.
+        var centerGraphic = new Graphic
+        {
+            Geometry = new MapPoint(Center.Longitude, Center.Latitude),
+            Symbol = new SimpleMarkerSymbol { Color = "red", Size = 12 }
+        };
+        _graphicsLayer.AddGraphic(centerGraphic);
+
+        // Add a graphic for each geocode.
+        if (Geocodes != null)
+        {
+            foreach (var geo in Geocodes)
+            {
+                var pinGraphic = new Graphic
+                {
+                    Geometry = new MapPoint(geo.Longitude, geo.Latitude),
+                    Symbol = new SimpleMarkerSymbol { Color = "blue", Size = 10 }
+                };
+                _graphicsLayer.AddGraphic(pinGraphic);
+            }
+        }
+
+        await Task.CompletedTask;
+    }
+}

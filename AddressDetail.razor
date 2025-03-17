@@ -1,0 +1,46 @@
+@page "/addressdetail"
+
+@if (ShowMap)
+{
+    <div style="width: 100%; height: 500px;">
+        <AddressBookMap Geocodes="geocodesList" @ref="addressBookMap" AddressCenter="_contactService.AddressCenter" />
+    </div>
+}
+
+@code {
+    // Toggle flag for displaying the map.
+    bool ShowMap = true;
+
+    // Example geocode list (update with your actual data)
+    List<Geocode> geocodesList = new List<Geocode>
+    {
+        new Geocode { Latitude = 38.3833, Longitude = -121.4444 },
+        new Geocode { Latitude = 38.5000, Longitude = -121.5000 }
+    };
+
+    // Reference to the map component if you need to call its methods later.
+    AddressBookMap addressBookMap;
+
+    // Example service providing the center coordinate.
+    ContactService _contactService = new ContactService();
+}
+
+// A simple geocode model.
+public class Geocode
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+}
+
+// Dummy service for demonstration.
+public class ContactService
+{
+    public LatLng AddressCenter { get; set; } = new LatLng { Latitude = 38.3833, Longitude = -121.4444 };
+}
+
+// Simple LatLng model.
+public class LatLng
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+}

@@ -1,0 +1,52 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  solution: '**/*.sln'
+  buildConfiguration: 'Release'
+
+steps:
+# 1. Checkout the code
+- checkout: self
+
+# 2. SonarQube Prepare step (insert your SonarQube hook/prepare commands here)
+- task: SonarQubePrepare@5
+  displayName: 'Prepare SonarQube Analysis'
+  inputs:
+    SonarQube: '<YOUR_SONARQUBE_SERVICE_CONNECTION>'  # Replace with your SonarQube service connection
+    scannerMode: 'MSBuild'
+    projectKey: '<YOUR_PROJECT_KEY>'                    # Replace with your project key
+    projectName: '<YOUR_PROJECT_NAME>'                  # Replace with your project name
+    extraProperties: |
+      # Add any additional SonarQube properties if needed
+      sonar.exclusions=**/Migrations/**
+
+# 3. Restore NuGet packages (if required)
+- task: DotNetCoreCLI@2
+  displayName: 'Restore NuGet Packages'
+  inputs:
+    command: 'restore'
+    projects: '$(solution)'
+
+# 4. Build the .NET MAUI Blazor Mobile App
+- task: DotNetCoreCLI@2
+  displayName: 'Build the App'
+  inputs:
+    command: 'build'
+    projects: '$(solution)'
+    arguments: '--configuration $(buildConfiguration)'
+
+# 5. SonarQube Analysis step (insert your SonarQube analysis commands here)
+- task: SonarQubeAnalyze@5
+  displayName: 'Run SonarQube Analysis'
+
+# 6. SonarQube Publish step (insert your SonarQube publish/report commands here)
+- task: SonarQubePublish@5
+  displayName: 'Publish SonarQube Report'
+  inputs:
+    pollingTimeoutSec: '300'

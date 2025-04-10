@@ -1,14 +1,38 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using Dapper.Contrib.Extensions;
-using Serilog;
 using SQLite;
+using Serilog;
 
 namespace YourNamespace
 {
+    // Assuming Entity defines at least a Guid Id, DateTime? DeletedOn, and DateTime? LastUpdatedOn
+    public class Entity
+    {
+        public Guid Id { get; set; }
+        public DateTime? DeletedOn { get; set; }
+        public DateTime? LastUpdatedOn { get; set; }
+    }
+
+    public interface ISqliteRepository<T>
+    {
+        Task<T?> GetById(Guid id);
+        Task<bool?> DoesEntityExist(Guid id);
+        Task<bool?> Add(T entity);
+        Task<bool?> Update(T entity);
+        Task<int?> Upsert(List<T> entities);
+        Task<bool?> SoftDelete(T entity);
+        Task<bool?> HardDelete(T entity);
+        event EventHandler<EventArgs<T>> DataUpdated;
+    }
+
+    public interface ISessionService
+    {
+        List<string> LastErrors { get; }
+    }
+
     public class SqliteRepository<T> : ISqliteRepository<T> where T : Entity, new()
     {
         protected readonly SQLiteConnection _db;
@@ -23,22 +47,22 @@ namespace YourNamespace
 
         public event EventHandler<EventArgs<T>>? DataUpdated;
 
-        protected virtual void OnDataUpdated(T entity)
-        {
+        protected virtual void OnDataUpdated(T entity) =>
             DataUpdated?.Invoke(this, new EventArgs<T>(entity));
-        }
 
         public async Task<T?> GetById(Guid id)
         {
             try
             {
-                T result = _db.Get<T>(id);
+                // SQLite-net requires that T has a primary key.
+                // The Get<T> method returns the entity matching the primary key.
+                var result = _db.Get<T>(id);
                 await Task.CompletedTask;
                 return result;
             }
             catch (Exception ex)
             {
-                Log.Information($"{nameof(SqliteRepository<T>)} exception - Message: {ex.Message}");
+                Log.Information($"{nameof(SqliteRepository<T>)} GetById exception: {ex.Message}");
                 string formattedDate = DateTime.UtcNow.ToString("yyyyMMdd HHmm");
                 _session.LastErrors.Add($"{formattedDate}:SqliteRepository:GetById:{ex.Message}");
                 return null;
@@ -49,14 +73,14 @@ namespace YourNamespace
         {
             try
             {
-                string sql = $"SELECT EXISTS(SELECT 1 FROM {TableName()} WHERE Id = ?)";
-                bool result = _db.ExecuteScalar<bool>(sql, id);
+                // Uses SQLite-net Table query to check if an entity exists.
+                bool exists = _db.Table<T>().Any(x => x.Id == id);
                 await Task.CompletedTask;
-                return result;
+                return exists;
             }
             catch (Exception ex)
             {
-                Log.Error(ex, $"DoesEntityExist failed: {typeof(T)}");
+                Log.Error(ex, $"DoesEntityExist failed for {typeof(T)}");
                 string formattedDate = DateTime.UtcNow.ToString("yyyyMMdd HHmm");
                 _session.LastErrors.Add($"{formattedDate}:SqliteRepository:DoesEntityExist:{ex.Message}");
                 return null;
@@ -68,7 +92,7 @@ namespace YourNamespace
             await _writeSemaphore.WaitAsync();
             try
             {
-                long result = _db.Insert(entity);
+                int result = _db.Insert(entity);
                 if (result > 0)
                     OnDataUpdated(entity);
                 return result > 0;
@@ -98,7 +122,7 @@ namespace YourNamespace
             }
             catch (SQLiteException ex)
             {
-                Log.Error(ex, $"Update failed: {typeof(T)}");
+                Log.Error(ex, $"Update failed for {typeof(T)}");
                 string formattedDate = DateTime.UtcNow.ToString("yyyyMMdd HHmm");
                 _session.LastErrors.Add($"{formattedDate}:SqliteRepository:Update:{ex.Message}");
                 return null;
@@ -109,19 +133,19 @@ namespace YourNamespace
             }
         }
 
-        public async Task<int?> Upsert(System.Collections.Generic.List<T> entities)
+        public async Task<int?> Upsert(List<T> entities)
         {
             int updatedNum = 0;
             foreach (var entity in entities)
             {
                 var exists = await DoesEntityExist(entity.Id);
-                if (exists is null)
-                    continue;
+                if (exists is null) continue;
 
                 bool? result;
                 if (exists.Value)
                 {
-                    if (entity.DeletedOn is not null)
+                    // If the entity is flagged as deleted, remove it.
+                    if (entity.DeletedOn != null)
                     {
                         await HardDelete(entity);
                         result = true;
@@ -133,7 +157,7 @@ namespace YourNamespace
                 }
                 else
                 {
-                    if (entity.DeletedOn is not null)
+                    if (entity.DeletedOn != null)
                         continue;
                     result = await Add(entity);
                 }
@@ -157,7 +181,7 @@ namespace YourNamespace
             }
             catch (SQLiteException ex)
             {
-                Log.Error(ex, $"SoftDelete failed: {typeof(T)}");
+                Log.Error(ex, $"SoftDelete failed for {typeof(T)}");
                 return null;
             }
         }
@@ -167,33 +191,22 @@ namespace YourNamespace
             await _writeSemaphore.WaitAsync();
             try
             {
+                // Retrieve the entity first (if needed)
                 var entityToDelete = await GetById(entity.Id);
-                int result = _db.Delete<T>(entityToDelete?.Id);
+                int result = _db.Delete(entityToDelete);
                 if (result > 0)
                     OnDataUpdated(entity);
                 return result > 0;
             }
             catch (SQLiteException ex)
             {
-                Log.Error(ex, $"HardDelete failed: {typeof(T)}");
+                Log.Error(ex, $"HardDelete failed for {typeof(T)}");
                 return null;
             }
             finally
             {
                 _writeSemaphore.Release();
             }
-        }
-
-        /// <summary>
-        /// Returns the table name for this entity using the [Table] attribute.
-        /// </summary>
-        protected static string TableName()
-        {
-            // Get the Dapper.Contrib [Table] attribute on type T (if any)
-            var tableAttr = typeof(T).GetCustomAttribute<TableAttribute>(inherit: false);
-            return tableAttr != null && !string.IsNullOrWhiteSpace(tableAttr.Name) 
-                ? tableAttr.Name 
-                : typeof(T).Name;
         }
     }
 }

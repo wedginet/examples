@@ -1,0 +1,67 @@
+/* reset basics */
+.nav-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nav-menu li {
+  margin: 0;
+  padding: 0;
+}
+
+/* top-level links */
+.nav-menu > ul > li > a,
+.nav-menu summary {
+  display: block;
+  padding: 0.6em 1em;
+  cursor: pointer;
+  text-decoration: none;
+  color: #333;
+  font-weight: 500;
+  border-bottom: 1px solid #eee;
+}
+
+/* hide default triangle */
+.nav-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+/* custom arrow */
+.nav-menu summary::before {
+  content: "▶";
+  display: inline-block;
+  width: 1em;
+  margin-right: 0.4em;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+}
+
+/* rotate arrow when open */
+.nav-menu details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+/* submenu styling */
+.nav-menu .submenu {
+  padding-left: 1.6em;
+  background: #fafafa;
+}
+.nav-menu .submenu li a {
+  padding: 0.4em 1em;
+  font-size: 0.95em;
+  border-bottom: none;
+  color: #555;
+}
+.nav-menu .submenu li a:hover {
+  background: #efefef;
+}
+
+/* remove default marker spacing for details */
+.nav-menu details {
+  margin: 0;
+  padding: 0;
+}
+.nav-menu details > summary {
+  margin: 0;
+  padding: 0;
+}

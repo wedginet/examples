@@ -1,0 +1,27 @@
+<div class="mb-3">
+  <textarea @bind="CsvText" rows="5" class="form-control"
+            placeholder="paste Name,EffectiveDate,ExpirationDate lines here..."></textarea>
+</div>
+<button class="btn btn-primary" @onclick="ParseAndUpload">Upload</button>
+
+@code {
+  private string CsvText { get; set; } = "";
+
+  [Parameter] public EventCallback<List<SpeciesDto>> OnParsed { get; set; }
+
+  private async Task ParseAndUpload()
+  {
+    var lines = CsvText
+      .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+      .Select(l => l.Split(','))
+      .Where(parts => parts.Length >= 2)
+      .Select(parts => new SpeciesDto {
+          Name           = parts[0].Trim(),
+          EffectiveDate  = DateTime.Parse(parts[1]),
+          ExpirationDate = parts.Length>2 && DateTime.TryParse(parts[2], out var d) ? d : null
+      })
+      .ToList();
+
+    await OnParsed.InvokeAsync(lines);
+  }
+}

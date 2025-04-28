@@ -1,0 +1,36 @@
+@page "/speciesmaintenance"
+@inject ILookupSpeciesService Service
+
+<h3>Species Maintenance</h3>
+
+<input @bind="searchText" placeholder="Search by name…" class="form-control mb-2" />
+<button class="btn btn-outline-primary mb-3" @onclick="OnSearch">Search</button>
+<button class="btn btn-success mb-3 ml-2" @onclick="() => OpenDialog(new())">Add New</button>
+
+<SpeciesDialog @bind-IsVisible="dialogVisible"
+               Model="currentItem"
+               OnSave="SaveSpecies" />
+
+<CsvUploader OnParsed="BulkAddSpecies" />
+
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Name</th><th>Eff Date</th><th>Exp Date</th><th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    @foreach(var sp in items)
+    {
+      <tr>
+        <td>@sp.Name</td>
+        <td>@sp.EffectiveDate:d</td>
+        <td>@(sp.ExpirationDate?.ToString("d") ?? "")</td>
+        <td>
+          <button class="btn btn-sm btn-primary" @onclick="() => OpenDialog(sp)">Edit</button>
+          <button class="btn btn-sm btn-danger" @onclick="() => DeleteSpecies(sp.Id)">Delete</button>
+        </td>
+      </tr>
+    }
+  </tbody>
+</table>

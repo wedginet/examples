@@ -1,8 +1,12 @@
+@using LookupAdminApp.Models
+
 <div class="mb-3">
   <textarea @bind="CsvText" rows="5" class="form-control"
             placeholder="paste Name,EffectiveDate,ExpirationDate lines here..."></textarea>
 </div>
-<button class="btn btn-primary" @onclick="ParseAndUpload">Upload</button>
+<button class="btn btn-outline-primary mb-4" @onclick="ParseAndUpload">
+  Bulk Upload CSV
+</button>
 
 @code {
   private string CsvText { get; set; } = "";
@@ -11,17 +15,17 @@
 
   private async Task ParseAndUpload()
   {
-    var lines = CsvText
+    var list = CsvText
       .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-      .Select(l => l.Split(','))
+      .Select(line => line.Split(',', StringSplitOptions.TrimEntries))
       .Where(parts => parts.Length >= 2)
       .Select(parts => new SpeciesDto {
-          Name           = parts[0].Trim(),
+          Name           = parts[0],
           EffectiveDate  = DateTime.Parse(parts[1]),
           ExpirationDate = parts.Length>2 && DateTime.TryParse(parts[2], out var d) ? d : null
       })
       .ToList();
 
-    await OnParsed.InvokeAsync(lines);
+    await OnParsed.InvokeAsync(list);
   }
 }

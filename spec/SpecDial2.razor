@@ -1,0 +1,67 @@
+@using MyNameSpace.Models    @* ← adjust to wherever SpeciesDto lives *@
+@using Microsoft.AspNetCore.Components.Forms
+
+<div class="modal fade @(IsVisible ? "show d-block" : "")"
+     tabindex="-1"
+     style="background-color: rgba(0,0,0,0.5);">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
+        <DataAnnotationsValidator />
+
+        <div class="modal-header">
+          <h5 class="modal-title">@DialogTitle</h5>
+          <button type="button" class="btn-close" aria-label="Close" @onclick="Close"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Name</label>
+            <InputText @bind-Value="Model.Name" class="form-control" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Effective Date</label>
+            <InputDate @bind-Value="Model.EffectiveDate" class="form-control" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Expiration Date</label>
+            <InputDate @bind-Value="Model.ExpirationDate" class="form-control" />
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" @onclick="Close">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </EditForm>
+    </div>
+  </div>
+</div>
+
+@code {
+  [Parameter]
+  public bool IsVisible { get; set; }
+
+  [Parameter]
+  public EventCallback<bool> IsVisibleChanged { get; set; }
+
+  [Parameter]
+  public SpeciesDto Model { get; set; } = new SpeciesDto();
+
+  [Parameter]
+  public EventCallback<SpeciesDto> OnSave { get; set; }
+
+  private string DialogTitle => Model.Id == 0 ? "Add Species" : "Edit Species";
+
+  private async Task HandleValidSubmit()
+  {
+    await OnSave.InvokeAsync(Model);
+    await Close();
+  }
+
+  private async Task Close()
+  {
+    // push the "false" back up so the parent hides the modal
+    await IsVisibleChanged.InvokeAsync(false);
+  }
+}

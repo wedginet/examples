@@ -1,54 +1,60 @@
-public partial class SpeciesMaintenance
+using Microsoft.AspNetCore.Components;
+using LookupAdminApp.Models;
+using LookupAdminApp.Services;
+
+namespace LookupAdminApp.Pages
 {
-    private List<SpeciesDto> items = new();
-    private string           searchText = "";
-    private bool             dialogVisible;
-    private SpeciesDto       currentItem = new();
-
-    protected override async Task OnInitializedAsync()
-        => await LoadAll();
-
-    private async Task LoadAll()
-        => items = await Service.GetAllAsync();
-
-    private async Task OnSearch()
+    public partial class SpeciesMaintenance : ComponentBase
     {
-        items = string.IsNullOrWhiteSpace(searchText)
-            ? await Service.GetAllAsync()
-            : await Service.SearchByNameAsync(searchText);
-    }
+        [Inject] public ILookupSpeciesService Service { get; set; } = null!;
 
-    private void OpenDialog(SpeciesDto sp)
-    {
-        currentItem = new SpeciesDto {
-            Id             = sp.Id,
-            Name           = sp.Name,
-            EffectiveDate  = sp.EffectiveDate,
-            ExpirationDate = sp.ExpirationDate
-        };
-        dialogVisible = true;
-    }
+        private List<SpeciesDto> items = new();
+        private string           searchText = "";
+        private bool             dialogVisible;
+        private SpeciesDto       currentItem = new();
 
-    private async Task SaveSpecies(SpeciesDto sp)
-    {
-        if (sp.Id == 0)
-            currentItem = await Service.CreateAsync(sp);
-        else
-            await Service.UpdateAsync(sp);
+        protected override async Task OnInitializedAsync()
+            => items = await Service.GetAllAsync();
 
-        await LoadAll();
-    }
+        private async Task OnSearch()
+        {
+            items = string.IsNullOrWhiteSpace(searchText)
+                ? await Service.GetAllAsync()
+                : await Service.SearchByNameAsync(searchText);
+        }
 
-    private async Task DeleteSpecies(int id)
-    {
-        if (!await Service.DeleteAsync(id)) return;
-        await LoadAll();
-    }
+        private void ShowDialog(SpeciesDto dto)
+        {
+            // clone so edits don’t immediately reflect in the table
+            currentItem = new SpeciesDto {
+                Id              = dto.Id,
+                Name            = dto.Name,
+                EffectiveDate   = dto.EffectiveDate,
+                ExpirationDate  = dto.ExpirationDate
+            };
+            dialogVisible = true;
+        }
 
-    private async Task BulkAddSpecies(List<SpeciesDto> list)
-    {
-        var result = await Service.BulkInsertAsync(list);
-        // you could show result.Succeeded vs. result.FailedCount…
-        await LoadAll();
+        private async Task SaveSpecies(SpeciesDto dto)
+        {
+            if (dto.Id == 0)
+                await Service.CreateAsync(dto);
+            else
+                await Service.UpdateAsync(dto);
+
+            items = await Service.GetAllAsync();
+        }
+
+        private async Task DeleteSpecies(int id)
+        {
+            if (await Service.DeleteAsync(id))
+                items = await Service.GetAllAsync();
+        }
+
+        private async Task BulkAddSpecies(List<SpeciesDto> list)
+        {
+            _ = await Service.BulkInsertAsync(list);
+            items = await Service.GetAllAsync();
+        }
     }
 }

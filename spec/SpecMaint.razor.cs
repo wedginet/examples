@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Components;
-using LookupAdminApp.Models;
-using LookupAdminApp.Services;
+using LookupAdmin.Server.Models;
+using LookupAdmin.Server.Services;
 
-namespace LookupAdminApp.Pages
+namespace LookupAdmin.Server.Pages
 {
     public partial class SpeciesMaintenance : ComponentBase
     {
@@ -25,7 +25,6 @@ namespace LookupAdminApp.Pages
 
         private void ShowDialog(SpeciesDto dto)
         {
-            // clone so edits don’t immediately reflect in the table
             currentItem = new SpeciesDto {
                 Id              = dto.Id,
                 Name            = dto.Name,
@@ -37,11 +36,8 @@ namespace LookupAdminApp.Pages
 
         private async Task SaveSpecies(SpeciesDto dto)
         {
-            if (dto.Id == 0)
-                await Service.CreateAsync(dto);
-            else
-                await Service.UpdateAsync(dto);
-
+            if (dto.Id == 0) await Service.CreateAsync(dto);
+            else              await Service.UpdateAsync(dto);
             items = await Service.GetAllAsync();
         }
 

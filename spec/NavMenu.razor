@@ -1,0 +1,23 @@
+@using Microsoft.AspNetCore.Components.Routing
+
+<nav class="sidebar bg-light">
+  <ul class="nav flex-column">
+    <li class="nav-item">
+      <a class="nav-link collapsed" data-bs-toggle="collapse" href="#lookupMenu"
+         role="button" aria-expanded="false" aria-controls="lookupMenu">
+        ▶ Lookups
+      </a>
+      <div class="collapse" id="lookupMenu">
+        <ul class="nav flex-column ms-3">
+          <li class="nav-item">
+            <NavLink class="nav-link" href="speciesmaintenance" Match="NavLinkMatch.Prefix">
+              Species Maintenance
+            </NavLink>
+          </li>
+          @* add other lookup pages here *@
+        </ul>
+      </div>
+    </li>
+    @* other top-level menu items here *@
+  </ul>
+</nav>

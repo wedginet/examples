@@ -1,0 +1,21 @@
+- task: Bash@3
+  displayName: Build EF Migration Bundle (dynamic project)
+  inputs:
+    targetType: inline
+    script: |
+      dotnet tool install --global dotnet-ef --version 9.0.4
+      export PATH="$HOME/.dotnet/tools:$PATH"
+      mkdir -p "$(Build.ArtifactStagingDirectory)/EFBundle"
+
+      # find your project file
+      proj=$(find . -type f -name 'myProj.csproj' | head -n1)
+      if [ -z "$proj" ]; then
+        echo "❌ myProj.csproj not found!"
+        exit 1
+      fi
+
+      dotnet ef migrations bundle \
+        --project "$proj" \
+        --output "$(Build.ArtifactStagingDirectory)/EFBundle/bundle"
+
+      echo "✅ Bundle created at $(Build.ArtifactStagingDirectory)/EFBundle/bundle"

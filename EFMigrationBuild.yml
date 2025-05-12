@@ -1,0 +1,22 @@
+- task: PowerShell@2
+  displayName: Build Windows Migration Bundle
+  inputs:
+    targetType: inline
+    pwsh: true                # Use PowerShell Core (cross-platform)
+    script: |
+      # Install the EF tool
+      dotnet tool install --global dotnet-ef
+      $env:PATH += "$HOME/.dotnet/tools"
+
+      # Emit a *Windows* bundle.exe
+      dotnet ef migrations bundle `
+        --configuration Release `
+        --runtime win-x64 `
+        --self-contained true `
+        --output "$(Build.ArtifactStagingDirectory)/EFBundle/bundle.exe"
+
+      # Verify it exists
+      if (!(Test-Path "$(Build.ArtifactStagingDirectory)/EFBundle/bundle.exe")) {
+        Write-Error "❌ bundle.exe not found!"
+        exit 1
+      }

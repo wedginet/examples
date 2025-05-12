@@ -33,3 +33,24 @@
       EFBundle/bundle.exe
       appsettings.json
     TargetFolder: '$(Build.ArtifactStagingDirectory)/EFBundle'
+
+
+
+release::::
+$efBundleDir = "$(System.DefaultWorkingDirectory)/_AHS Mobile Sync Web API/drop/EFBundle"
+$bundlePath  = "$efBundleDir\bundle.exe"
+
+Write-Host "Running migration bundle: $bundlePath"
+$connection = $env:DDLConnection
+$arguments = @("--connection", "`"$connection`"")
+
+Start-Process -FilePath $bundlePath `
+    -ArgumentList $arguments `
+    -WorkingDirectory $efBundleDir `
+    -NoNewWindow -Wait
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Migration bundle failed (exit code $LASTEXITCODE)"
+    exit $LASTEXITCODE
+}
+Write-Host "✅ Migration bundle executed successfully"

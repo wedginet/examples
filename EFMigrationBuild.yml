@@ -20,3 +20,16 @@
         Write-Error "❌ bundle.exe not found!"
         exit 1
       }
+
+
+
+
+
+- task: CopyFiles@2
+  displayName: Copy EF bundle and appsettings
+  inputs:
+    SourceFolder: '$(Build.ArtifactStagingDirectory)'  
+    Contents: |
+      EFBundle/bundle.exe
+      appsettings.json
+    TargetFolder: '$(Build.ArtifactStagingDirectory)/EFBundle'

@@ -1,30 +1,39 @@
-- task: Bash@3
-  displayName: Run EF Core Migration Bundle (Linux)
-  inputs:
-    targetType: 'inline'
-    script: |
-      bundlePath="$(System.DefaultWorkingDirectory)/_AHS Mobile Sync Web API/drop/EFBundle/bundle"
-      echo "Running EF migration bundle: $bundlePath"
+# Set correct bundle path
+bundlePath="$(System.DefaultWorkingDirectory)/_AHS Mobile Sync Web API/drop/EFBundle/bundle"
+bundleDir="$(dirname "$bundlePath")"
 
-      if [ ! -f "$bundlePath" ]; then
-        echo "❌ Bundle not found at $bundlePath"
-        exit 1
-      fi
+echo "📂 Checking for bundle in: $bundlePath"
+echo "📁 Switching to working directory: $bundleDir"
 
-      chmod +x "$bundlePath"
+# Ensure directory exists before cd
+if [ ! -d "$bundleDir" ]; then
+  echo "❌ Working directory $bundleDir does not exist"
+  exit 1
+fi
 
-      if [ -z "$DDLConnection" ]; then
-        echo "❌ DDLConnection variable is not set"
-        exit 1
-      fi
+cd "$bundleDir"
 
-      echo "Using connection string: $DDLConnection"
-      "$bundlePath" --connection "$DDLConnection"
-      result=$?
+# Check that the bundle exists
+if [ ! -f "./bundle" ]; then
+  echo "❌ EF bundle not found at ./bundle"
+  exit 1
+fi
 
-      if [ $result -ne 0 ]; then
-        echo "❌ EF migration bundle failed with exit code $result"
-        exit $result
-      else
-        echo "✅ EF migration applied successfully"
-      fi
+chmod +x ./bundle
+
+# Make sure DDLConnection is set
+if [ -z "$DDLConnection" ]; then
+  echo "❌ DDLConnection is not set"
+  exit 1
+fi
+
+echo "🚀 Running EF migration bundle with connection string"
+./bundle --connection "$DDLConnection"
+result=$?
+
+if [ $result -ne 0 ]; then
+  echo "❌ EF migration bundle failed with exit code $result"
+  exit $result
+else
+  echo "✅ EF migration applied successfully"
+fi

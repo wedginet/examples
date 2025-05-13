@@ -2,54 +2,42 @@
   displayName: Build EF Core Migration Bundle
   inputs:
     targetType: inline
+    pwsh: true
     script: |
+      # 1) Install/update EF CLI
       dotnet tool install --global dotnet-ef --version 9.0.4
       $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
 
-      # 1) Locate the Migrations project (where the Migrations folder lives)
-      Write-Host "🔍 Finding migrations .csproj..."
-      $migrationsProj = Get-ChildItem -Path "$(Build.SourcesDirectory)" -Recurse -Filter *.csproj |
-                        Where-Object { Test-Path (Join-Path $_.Directory.FullName "Migrations") } |
-                        Select-Object -First 1
-      if (-not $migrationsProj) {
-        Write-Error "❌ Could not find a project containing a Migrations folder"
+      # 2) Find the single .csproj in your repo
+      Write-Host "🔍 Locating AHSMobileSync.csproj..."
+      $csproj = Get-ChildItem -Path "$(Build.SourcesDirectory)" -Recurse -Filter AHSMobileSync.csproj | Select-Object -First 1
+      if (-not $csproj) {
+        Write-Error "❌ AHSMobileSync.csproj not found!"
         exit 1
       }
-      Write-Host "✅ Migrations project: $($migrationsProj.FullName)"
+      $projectFolder = Split-Path $csproj.FullName -Parent
+      Write-Host "✅ Project folder: $projectFolder"
 
-      # 2) Locate the WebAPI (startup) project by looking for Program.cs
-      Write-Host "🔍 Finding startup (WebAPI) .csproj..."
-      $startupProj = Get-ChildItem -Path "$(Build.SourcesDirectory)" -Recurse -Filter *.csproj |
-                     Where-Object { Test-Path (Join-Path $_.Directory.FullName "Program.cs") } |
-                     Select-Object -First 1
-      if (-not $startupProj) {
-        Write-Error "❌ Could not find a startup project containing Program.cs"
-        exit 1
-      }
-      Write-Host "✅ Startup project: $($startupProj.FullName)"
+      # 3) Build the project
+      Push-Location $projectFolder
+      Write-Host "🔧 dotnet build (Release)..."
+      dotnet build --configuration Release
 
-      # 3) Prepare bundle folder
+      # 4) Create the EF bundle
       $bundleDir = "$(Build.ArtifactStagingDirectory)\EFBundle"
       New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
-
-      # 4) Move into the startup project folder and bundle migrations
-      Push-Location $startupProj.Directory.FullName
-
-      Write-Host "🔧 Bundling EF migrations..."
+      Write-Host "📦 dotnet ef migrations bundle → bundle.exe"
       dotnet ef migrations bundle `
-        --project "$($migrationsProj.FullName)" `
-        --startup-project "$($startupProj.FullName)" `
         --configuration Release `
         --framework net8.0 `
         --runtime win-x64 `
         --self-contained `
         --output "$bundleDir\bundle.exe"
-
       Pop-Location
 
       # 5) Verify
       if (Test-Path "$bundleDir\bundle.exe") {
-        Write-Host "✅ bundle.exe created at $bundleDir\bundle.exe"
+        Write-Host "✅ Migration bundle created at $bundleDir\bundle.exe"
       } else {
         Write-Error "❌ bundle.exe not found in $bundleDir"
         exit 1

@@ -1,22 +1,146 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: sojournapp
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: sojournapp
-  template:
-    metadata:
-      labels:
-        app: <your-app-name>
-    spec:
-      containers:
-      - name: <your-app-name>
-        image: <your-container-registry>/<your-app-name>:latest
-        ports:
-        - containerPort: 80
-        env:
-        - name: ASPNETCORE_ENVIRONMENT
-          value: "Production"
+trigger:
+- master
+
+variables:
+  imageName: 'ahsmobilesync'
+  buildConfiguration: 'Release'
+  dockerfile: 'Dockerfile'
+  containerRegistry: 'vs20ahsacr.azurecr.us' 
+  containerRegistryProd: 'vs10ahsakscr.azurecr.us' 
+
+- job: build
+  displayName: Build, Test, Analyze
+  pool: MCE Linux
+  steps:
+
+    - task: SonarQubePrepare@7
+      inputs:
+        SonarQube: 'SonarQube AHS'
+        scannerMode: 'dotnet'
+        projectKey: 'USDA.MRP.APHIS.ANIMAL.HEALTH.SERVICES.MOBILE.SYNC1'
+        projectName: 'USDA MRP APHIS AHS MOBILE SYNC'
+ 
+    - task: UseDotNet@2
+      inputs:
+        packageType: 'sdk'
+        version: '8.x'
+ 
+    - task: DotNetCoreCLI@2
+      displayName: 'Build $(buildConfiguration)'
+      inputs:
+        command: 'build'
+        projects: '**/AHSMobileSync.csproj'
+        arguments: '--configuration $(buildConfiguration)'
+ 
+    #- task: DotNetCoreCLI@2
+    #  displayName: 'Run Unit Tests'
+    #  inputs:
+    #    command: 'test'
+    #    projects: '**/*UnitTests.csproj'
+    #    arguments: '--no-restore'
+    #    publishTestResults: true
+ 
+    #- task: SonarQubeAnalyze@7
+    #  displayName: Run Code Analysis
+    #  inputs:
+    #    jdkversion: 'JAVA_HOME_21_X64'
+ 
+    #- task: SonarQubePublish@7
+    #  inputs:
+    #    pollingTimeoutSec: '300'
+ 
+    - task: Bash@3
+      displayName: Build EF Core Migration Bundle (Linux)
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "🔧 Installing dotnet-ef"
+          dotnet tool install --global dotnet-ef
+          export PATH="$PATH:$HOME/.dotnet/tools"
+    
+          echo "🔍 Finding .csproj"
+          project=$(find . -name 'AHSMobileSync.csproj' | head -n 1)
+          if [ -z "$project" ]; then
+            echo "❌ AHSMobileSync.csproj not found"
+            exit 1
+          fi
+          echo "✅ Using project: $project"
+    
+          echo "📦 Building EF Core migration bundle"
+          dotnet ef migrations bundle \
+            --project "$project" \
+            --configuration Release \
+            --runtime win-x64 \
+            --self-contained \
+            --output "$(Build.ArtifactStagingDirectory)/EFBundle/bundle.exe"
+    
+          if [ -f "$(Build.ArtifactStagingDirectory)/EFBundle/bundle.exe" ]; then
+            echo "✅ Bundle created successfully"
+          else
+            echo "❌ Bundle not found"
+            exit 1
+          fi
+      
+    - task: CopyFiles@2
+      displayName: 'Copy appsettings.json for EF Bundle'
+      inputs:
+        SourceFolder: '$(Build.SourcesDirectory)'
+        Contents: 'appsettings.json'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/EFBundle'
+
+        
+    - task: DotNetCoreCLI@2
+      displayName: Publish output
+      inputs:
+        command: publish
+        publishWebProjects: false
+        projects: '**/AHSMobileSync.csproj'
+        arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+        zipAfterPublish: false
+ 
+    - task: PublishBuildArtifacts@1
+      displayName: Publish artifacts
+      inputs:
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+ 
+- job: containerize
+  displayName: Build Image
+  pool: 'MCE Linux'
+  dependsOn: build
+  steps:
+ 
+    - task: Docker@2
+      displayName: Build docker image
+      inputs:
+        buildContext: $(Build.SourcesDirectory)
+        containerRegistry: $(containerRegistry)
+        repository: $(imageName)
+        command: 'build'
+        Dockerfile: '$(dockerfile)'
+        tags: |
+          $(Build.BuildId)
+        arguments: '--build-arg="BUILD_CONFIGURATION=$(buildConfiguration)"'
+ 
+    - task: Docker@2
+      displayName: Push docker image
+      inputs:
+        containerRegistry: $(containerRegistry)
+        repository: $(imageName)
+        command: 'push'
+        tags: |
+          $(Build.BuildId)
+ 
+    # Here https://docs.docker.com/reference/cli/docker/image/tag/
+    # docker tag 0e5574283393 fedora/httpd:version1.0
+    ### RETAG THE IMAGE FOR PROD
+    - script: docker tag $(containerRegistry)/$(imageName):$(Build.BuildId) $(containerRegistryProd)/$(imageName):$(Build.BuildId)
+      displayName: Retag Docker Image for Prod
+ 
+    - task: Docker@2
+      displayName: Push docker image PROD Tag
+      inputs:
+        containerRegistry: $(containerRegistryProd)
+        repository: '$(imageName)'
+        command: 'push'
+        tags: '$(Build.BuildId)'

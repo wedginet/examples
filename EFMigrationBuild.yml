@@ -4,38 +4,46 @@
     targetType: inline
     script: |
       # 1. Install / update EF CLI
-      dotnet tool install --global dotnet-ef --version 9.0.3
+      dotnet tool install --global dotnet-ef --version 9.0.4
       $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
 
-      # 2. Locate your .csproj dynamically
-      Write-Host "🔍 Searching for first *.csproj under $(Build.SourcesDirectory)..."
+      # 2. Find your EF project
+      Write-Host "🔍 Searching for .csproj under $(Build.SourcesDirectory)..."
       $csproj = Get-ChildItem -Path "$(Build.SourcesDirectory)" -Recurse -Filter *.csproj `
                 | Where-Object { $_.Name -notmatch 'Test|Sample' } `
                 | Select-Object -First 1
       if (-not $csproj) {
-        Write-Error "❌ No .csproj found in $(Build.SourcesDirectory)"
+        Write-Error "❌ No .csproj found under $(Build.SourcesDirectory)"
         exit 1
       }
-      $projectPath = $csproj.FullName
+      $projectPath   = $csproj.FullName
+      $projectFolder = Split-Path $projectPath -Parent
       Write-Host "✅ Found project: $projectPath"
-
-      # 3. Expose it as a pipeline variable (optional)
       Write-Host "##vso[task.setvariable variable=EFProjectPath]$projectPath"
 
-      # 4. Prepare output folder
+      # 3. Prepare bundle output folder
       $bundleDir = "$(Build.ArtifactStagingDirectory)\EFBundle"
       New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
 
-      # 5. Build the self-contained Windows bundle
+      # 4. Explicitly build & bundle in the project folder
+      Push-Location $projectFolder
+
+      Write-Host "🔧 Building project..."
+      dotnet build "$projectPath" --configuration Release --framework net8.0
+
+      Write-Host "📦 Bundling migrations..."
       dotnet ef migrations bundle `
         --project "$projectPath" `
         --startup-project "$projectPath" `
         --configuration Release `
+        --framework net8.0 `
         --runtime win-x64 `
-        --self-contained true `
+        --self-contained `
         --output "$bundleDir\bundle.exe"
 
-      # 6. Verify success
+      Pop-Location
+
+      # 5. Verify the bundle
       if (Test-Path "$bundleDir\bundle.exe") {
         Write-Host "✅ bundle.exe created at $bundleDir\bundle.exe"
       } else {

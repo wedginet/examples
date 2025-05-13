@@ -1,21 +1,30 @@
 - task: Bash@3
-  displayName: Build EF Migration Bundle (dynamic project)
+  displayName: Run EF Core Migration Bundle (Linux)
   inputs:
-    targetType: inline
+    targetType: 'inline'
     script: |
-      dotnet tool install --global dotnet-ef --version 9.0.4
-      export PATH="$HOME/.dotnet/tools:$PATH"
-      mkdir -p "$(Build.ArtifactStagingDirectory)/EFBundle"
+      bundlePath="$(System.DefaultWorkingDirectory)/_AHS Mobile Sync Web API/drop/EFBundle/bundle"
+      echo "Running EF migration bundle: $bundlePath"
 
-      # find your project file
-      proj=$(find . -type f -name 'myProj.csproj' | head -n1)
-      if [ -z "$proj" ]; then
-        echo "❌ myProj.csproj not found!"
+      if [ ! -f "$bundlePath" ]; then
+        echo "❌ Bundle not found at $bundlePath"
         exit 1
       fi
 
-      dotnet ef migrations bundle \
-        --project "$proj" \
-        --output "$(Build.ArtifactStagingDirectory)/EFBundle/bundle"
+      chmod +x "$bundlePath"
 
-      echo "✅ Bundle created at $(Build.ArtifactStagingDirectory)/EFBundle/bundle"
+      if [ -z "$DDLConnection" ]; then
+        echo "❌ DDLConnection variable is not set"
+        exit 1
+      fi
+
+      echo "Using connection string: $DDLConnection"
+      "$bundlePath" --connection "$DDLConnection"
+      result=$?
+
+      if [ $result -ne 0 ]; then
+        echo "❌ EF migration bundle failed with exit code $result"
+        exit $result
+      else
+        echo "✅ EF migration applied successfully"
+      fi

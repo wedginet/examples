@@ -1,56 +1,45 @@
 - task: PowerShell@2
-  displayName: Build Windows Migration Bundle
+  displayName: Build EF Core Migration Bundle
   inputs:
     targetType: inline
-    pwsh: true                # Use PowerShell Core (cross-platform)
     script: |
-      # Install the EF tool
-      dotnet tool install --global dotnet-ef
-      $env:PATH += "$HOME/.dotnet/tools"
+      # 1. Install / update EF CLI
+      dotnet tool install --global dotnet-ef --version 9.0.3
+      $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
 
-      # Emit a *Windows* bundle.exe
+      # 2. Locate your .csproj dynamically
+      Write-Host "🔍 Searching for first *.csproj under $(Build.SourcesDirectory)..."
+      $csproj = Get-ChildItem -Path "$(Build.SourcesDirectory)" -Recurse -Filter *.csproj `
+                | Where-Object { $_.Name -notmatch 'Test|Sample' } `
+                | Select-Object -First 1
+      if (-not $csproj) {
+        Write-Error "❌ No .csproj found in $(Build.SourcesDirectory)"
+        exit 1
+      }
+      $projectPath = $csproj.FullName
+      Write-Host "✅ Found project: $projectPath"
+
+      # 3. Expose it as a pipeline variable (optional)
+      Write-Host "##vso[task.setvariable variable=EFProjectPath]$projectPath"
+
+      # 4. Prepare output folder
+      $bundleDir = "$(Build.ArtifactStagingDirectory)\EFBundle"
+      New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
+
+      # 5. Build the self-contained Windows bundle
       dotnet ef migrations bundle `
+        --project "$projectPath" `
+        --startup-project "$projectPath" `
         --configuration Release `
         --runtime win-x64 `
         --self-contained true `
-        --output "$(Build.ArtifactStagingDirectory)/EFBundle/bundle.exe"
+        --output "$bundleDir\bundle.exe"
 
-      # Verify it exists
-      if (!(Test-Path "$(Build.ArtifactStagingDirectory)/EFBundle/bundle.exe")) {
-        Write-Error "❌ bundle.exe not found!"
+      # 6. Verify success
+      if (Test-Path "$bundleDir\bundle.exe") {
+        Write-Host "✅ bundle.exe created at $bundleDir\bundle.exe"
+      } else {
+        Write-Error "❌ bundle.exe not found in $bundleDir"
         exit 1
       }
-
-
-
-
-
-- task: CopyFiles@2
-  displayName: Copy EF bundle and appsettings
-  inputs:
-    SourceFolder: '$(Build.ArtifactStagingDirectory)'  
-    Contents: |
-      EFBundle/bundle.exe
-      appsettings.json
-    TargetFolder: '$(Build.ArtifactStagingDirectory)/EFBundle'
-
-
-
-release::::
-$efBundleDir = "$(System.DefaultWorkingDirectory)/_AHS Mobile Sync Web API/drop/EFBundle"
-$bundlePath  = "$efBundleDir\bundle.exe"
-
-Write-Host "Running migration bundle: $bundlePath"
-$connection = $env:DDLConnection
-$arguments = @("--connection", "`"$connection`"")
-
-Start-Process -FilePath $bundlePath `
-    -ArgumentList $arguments `
-    -WorkingDirectory $efBundleDir `
-    -NoNewWindow -Wait
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Migration bundle failed (exit code $LASTEXITCODE)"
-    exit $LASTEXITCODE
-}
-Write-Host "✅ Migration bundle executed successfully"
+  workingDirectory: '$(Build.SourcesDirectory)'

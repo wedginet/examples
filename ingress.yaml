@@ -26,3 +26,48 @@ spec:
                 port:
                   number: 8080
 
+
+
+
+
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ahs-mobile-ingress
+  namespace: $(k8s_namespace)
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: $(host)
+    http:
+      paths:
+      # === API 1: ahs-mobile-auth-api ===
+      - path: $(url-path-folder)/api/Auth/(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: ahs-mobile-auth-api
+            port:
+              number: 8080
+
+      # === API 2: ahs-mobile-addressbook-api ===
+      - path: $(url-path-folder)/api/(ContactSync|LookupContactType|LookupCounty|LookupLoad|LookupOperationType|LookupRolePermission|LookupSpecies|LookupState)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: ahs-mobile-addressbook-api
+            port:
+              number: 8080
+
+      # === Blazor Server WebApp: AHSAdminPortal ===
+      - path: /AdminPortal(/.*)?
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: ahsadminportal
+            port:
+              number: 80

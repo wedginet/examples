@@ -1,0 +1,50 @@
+@inject ISessionService SessionService
+@inject IBluetoothService BluetoothService
+
+<select @onchange="OnDeviceSelected">
+    <option value="">Select Bluetooth Device</option>
+    @foreach (var device in Devices)
+    {
+        <option value="@device.Address">@device.Name (@device.Address)</option>
+    }
+</select>
+
+@if (SelectedDevice != null)
+{
+    <p>Connected to: @SelectedDevice.Name</p>
+}
+
+@code {
+    private List<BluetoothDeviceModel> Devices = new();
+    private BluetoothDeviceModel? SelectedDevice;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Devices = await BluetoothService.GetAvailableDevicesAsync();
+        var remembered = await SessionService.GetSelectedBluetoothDeviceAsync();
+        if (remembered != null)
+        {
+            await ConnectToDevice(remembered);
+        }
+    }
+
+    private async Task OnDeviceSelected(ChangeEventArgs e)
+    {
+        var address = e.Value?.ToString();
+        var device = Devices.FirstOrDefault(d => d.Address == address);
+        if (device != null)
+        {
+            await ConnectToDevice(device);
+        }
+    }
+
+    private async Task ConnectToDevice(BluetoothDeviceModel device)
+    {
+        var success = await BluetoothService.ConnectToDeviceAsync(device);
+        if (success)
+        {
+            SelectedDevice = device;
+            await SessionService.SetSelectedBluetoothDeviceAsync(device);
+        }
+    }
+}

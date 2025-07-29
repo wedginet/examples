@@ -1,50 +1,67 @@
 @inject ISessionService SessionService
 @inject IBluetoothService BluetoothService
 
-<select @onchange="OnDeviceSelected">
-    <option value="">Select Bluetooth Device</option>
-    @foreach (var device in Devices)
-    {
-        <option value="@device.Address">@device.Name (@device.Address)</option>
-    }
-</select>
-
-@if (SelectedDevice != null)
+@if (ShowPopup)
 {
-    <p>Connected to: @SelectedDevice.Name</p>
+    <div class="popup-overlay">
+        <div class="popup-content">
+            <h3>Select a Bluetooth Device</h3>
+
+            @if (Devices?.Any() == true)
+            {
+                <select @bind="SelectedAddress">
+                    <option value="">-- Select Device --</option>
+                    @foreach (var device in Devices)
+                    {
+                        <option value="@device.Address">@device.Name (@device.Address)</option>
+                    }
+                </select>
+                <br />
+                <button @onclick="ConfirmSelection">Connect</button>
+                <button @onclick="ClosePopup">Cancel</button>
+            }
+            else
+            {
+                <p>No devices found. Please pair a device first.</p>
+                <button @onclick="ClosePopup">Close</button>
+            }
+        </div>
+    </div>
 }
 
 @code {
+    [Parameter] public bool ShowPopup { get; set; }
+    [Parameter] public EventCallback<bool> ShowPopupChanged { get; set; }
+    [Parameter] public EventCallback<BluetoothDeviceModel?> OnDeviceConnected { get; set; }
+
     private List<BluetoothDeviceModel> Devices = new();
-    private BluetoothDeviceModel? SelectedDevice;
+    private string? SelectedAddress;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        Devices = await BluetoothService.GetAvailableDevicesAsync();
-        var remembered = await SessionService.GetSelectedBluetoothDeviceAsync();
-        if (remembered != null)
+        if (ShowPopup)
         {
-            await ConnectToDevice(remembered);
+            Devices = await BluetoothService.GetAvailableDevicesAsync();
         }
     }
 
-    private async Task OnDeviceSelected(ChangeEventArgs e)
+    private async Task ConfirmSelection()
     {
-        var address = e.Value?.ToString();
-        var device = Devices.FirstOrDefault(d => d.Address == address);
-        if (device != null)
+        var selected = Devices.FirstOrDefault(d => d.Address == SelectedAddress);
+        if (selected != null)
         {
-            await ConnectToDevice(device);
+            var success = await BluetoothService.ConnectToDeviceAsync(selected);
+            if (success)
+            {
+                await SessionService.SetSelectedBluetoothDeviceAsync(selected);
+                await OnDeviceConnected.InvokeAsync(selected);
+            }
         }
+        await ClosePopup();
     }
 
-    private async Task ConnectToDevice(BluetoothDeviceModel device)
+    private async Task ClosePopup()
     {
-        var success = await BluetoothService.ConnectToDeviceAsync(device);
-        if (success)
-        {
-            SelectedDevice = device;
-            await SessionService.SetSelectedBluetoothDeviceAsync(device);
-        }
+        await ShowPopupChanged.InvokeAsync(false);
     }
 }

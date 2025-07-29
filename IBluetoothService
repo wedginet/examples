@@ -1,0 +1,9 @@
+using Core.Bluetooth;
+
+namespace Infrastructure.Bluetooth;
+
+public interface IBluetoothService
+{
+    Task<List<BluetoothDeviceModel>> GetAvailableDevicesAsync();
+    Task<bool> ConnectToDeviceAsync(BluetoothDeviceModel device);
+}

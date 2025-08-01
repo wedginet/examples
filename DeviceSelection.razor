@@ -1,3 +1,108 @@
+@using AHS.Core.Bluetooth
+@inject IBlueToothService BluetoothService
+@inject IPermissionsHelper PermissionsHelper
+@inject IBluetoothSession BluetoothSession
+
+<div class="device-connection-overlay">
+    <div class="device-connection-box">
+        <h3>Select Bluetooth Device</h3>
+        @if (Devices?.Any() == true)
+        {
+            <select @onchange="OnDeviceSelected">
+                <option disabled selected>Select a device</option>
+                @foreach (var device in Devices)
+                {
+                    <option value="@device.Name" selected="@(device.Name == SelectedDeviceName)">@device.Name</option>
+                }
+            </select>
+            <button @onclick="ConnectToDevice">Connect</button>
+        }
+        else
+        {
+            <p>Searching for devices...</p>
+        }
+    </div>
+</div>
+
+<style>
+    .device-connection-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.4);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .device-connection-box {
+        background-color: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        padding: 2rem;
+        width: 90%;
+        max-width: 400px;
+        text-align: center;
+    }
+
+    .device-connection-box h3 {
+        margin-bottom: 1rem;
+    }
+
+    .device-connection-box select {
+        width: 100%;
+        padding: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .device-connection-box button {
+        padding: 0.5rem 1.25rem;
+        border: none;
+        background-color: #0078D7;
+        color: white;
+        border-radius: 6px;
+        cursor: pointer;
+    }
+
+    .device-connection-box button:hover {
+        background-color: #005fa3;
+    }
+</style>
+
+@code {
+    private List<PairedDevice> Devices;
+    private string SelectedDeviceName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var hasPermissions = await PermissionsHelper.RequestBluetoothPermissionsAsync();
+        if (!hasPermissions) return;
+
+        Devices = await BluetoothService.GetPairedDevicesAsync();
+        SelectedDeviceName = BluetoothSession.LastConnectedDevice;
+    }
+
+    private void OnDeviceSelected(ChangeEventArgs e)
+    {
+        SelectedDeviceName = e.Value?.ToString();
+    }
+
+    private async Task ConnectToDevice()
+    {
+        if (!string.IsNullOrEmpty(SelectedDeviceName))
+        {
+            await BluetoothService.ConnectToDeviceAsync(SelectedDeviceName);
+            BluetoothSession.LastConnectedDevice = SelectedDeviceName;
+        }
+    }
+}
+
+
+
+
 <!-- AHS.BlazorShared/Bluetooth/DeviceConnection.razor -->
 
 @using AHS.Core.Bluetooth

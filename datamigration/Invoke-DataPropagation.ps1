@@ -13,7 +13,8 @@
     6. Re-enables FK constraints
     7. Validates that row counts match between source and target
 
-    Designed to run as part of an Azure DevOps release pipeline.
+    Supported paths: QA→DEV, QA→UAT, UAT→QA, UAT→PROD.
+    Designed to run as part of an Azure DevOps YAML pipeline (manual trigger).
 
 .PARAMETER SourceConnectionString
     ADO.NET connection string for the source database.

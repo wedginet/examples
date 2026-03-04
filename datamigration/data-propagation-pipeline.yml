@@ -1,0 +1,196 @@
+# =============================================================================
+# DATA PROPAGATION PIPELINE
+# =============================================================================
+# Purpose:  Copy lookup/rules table data from a source DB (typically QA) to a
+#           target DB (DEV, UAT, or PROD), preserving primary keys and
+#           foreign-key relationships.
+#
+# Trigger:  Manual only (no CI trigger)
+#
+# How it works:
+#   1. You select the source and target environment at queue time.
+#   2. The pipeline runs a PowerShell script that:
+#        a. Reads your table list (in dependency order)
+#        b. Disables FK constraints on the target
+#        c. Truncates tables in REVERSE order (child → parent)
+#        d. Copies data from source to target using INSERT ... SELECT
+#           with SET IDENTITY_INSERT ON (preserves PKs)
+#        e. Re-enables FK constraints
+#        f. Validates row counts match
+# =============================================================================
+
+trigger: none          # Manual trigger only — never runs on commits
+pr: none               # Never runs on pull requests
+
+parameters:
+  # ─── Source Environment ───────────────────────────────────────────────
+  - name: sourceEnvironment
+    displayName: 'Source Environment'
+    type: string
+    default: 'QA'
+    values:
+      - QA
+      - UAT
+
+  # ─── Target Environment ──────────────────────────────────────────────
+  - name: targetEnvironment
+    displayName: 'Target Environment'
+    type: string
+    default: 'DEV'
+    values:
+      - DEV
+      - UAT
+      - PROD
+
+  # ─── Table List ──────────────────────────────────────────────────────
+  # Comma-separated, in DEPENDENCY ORDER (parent tables first).
+  # The script will truncate in reverse order and insert in this order.
+  # Example: If RuleCategory is a parent of Rule, list RuleCategory first.
+  - name: tableList
+    displayName: 'Tables to Copy (comma-separated, parent-first dependency order)'
+    type: string
+    default: 'LookupCategory,LookupItem,RuleCategory,RuleSet,Rule,RuleCondition'
+
+  # ─── Schema Name ─────────────────────────────────────────────────────
+  - name: schemaName
+    displayName: 'Database Schema'
+    type: string
+    default: 'dbo'
+
+  # ─── Dry Run ─────────────────────────────────────────────────────────
+  - name: dryRun
+    displayName: 'Dry Run (preview only, no changes)'
+    type: boolean
+    default: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VARIABLES — Connection strings are stored in Variable Groups
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# You must create a Variable Group named "DataPropagation-ConnectionStrings"
+# containing these variables (mark each as SECRET):
+#
+#   SqlConnection_DEV    — Full ADO.NET connection string for DEV database
+#   SqlConnection_QA     — Full ADO.NET connection string for QA database
+#   SqlConnection_UAT    — Full ADO.NET connection string for UAT database
+#   SqlConnection_PROD   — Full ADO.NET connection string for PROD database
+#
+# Format:
+#   Server=tcp:yourserver.database.windows.net,1433;
+#   Initial Catalog=YourDb_DEV;
+#   Persist Security Info=False;
+#   User ID=youruser;Password=yourpassword;
+#   MultipleActiveResultSets=False;
+#   Encrypt=True;TrustServerCertificate=False;
+#   Connection Timeout=60;
+#
+# ═══════════════════════════════════════════════════════════════════════════
+
+variables:
+  - group: DataPropagation-ConnectionStrings
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VALIDATION STAGE — Sanity checks before touching any data
+# ═══════════════════════════════════════════════════════════════════════════
+stages:
+  - stage: Validate
+    displayName: 'Validate Configuration'
+    jobs:
+      - job: ValidateParams
+        displayName: 'Validate Parameters'
+        pool:
+          vmImage: 'windows-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: 'Validate source != target'
+            inputs:
+              targetType: 'inline'
+              script: |
+                $source = "${{ parameters.sourceEnvironment }}"
+                $target = "${{ parameters.targetEnvironment }}"
+
+                Write-Host "========================================="
+                Write-Host "  DATA PROPAGATION PIPELINE"
+                Write-Host "========================================="
+                Write-Host "  Source:    $source"
+                Write-Host "  Target:    $target"
+                Write-Host "  Tables:    ${{ parameters.tableList }}"
+                Write-Host "  Schema:    ${{ parameters.schemaName }}"
+                Write-Host "  Dry Run:   ${{ parameters.dryRun }}"
+                Write-Host "========================================="
+
+                if ($source -eq $target) {
+                    Write-Error "Source and target environments cannot be the same!"
+                    exit 1
+                }
+
+                # Guard: Only QA or UAT can be a source for PROD
+                if ($target -eq "PROD" -and $source -notin @("QA","UAT")) {
+                    Write-Error "Only QA or UAT can propagate to PROD."
+                    exit 1
+                }
+
+                Write-Host "Validation passed."
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROPAGATION STAGE — The actual data copy
+# ═══════════════════════════════════════════════════════════════════════════
+  - stage: Propagate
+    displayName: 'Propagate Data: ${{ parameters.sourceEnvironment }} → ${{ parameters.targetEnvironment }}'
+    dependsOn: Validate
+    # ── For PROD, require a manual approval (see setup instructions) ───
+    ${{ if eq(parameters.targetEnvironment, 'PROD') }}:
+      condition: succeeded()
+    jobs:
+      - ${{ if eq(parameters.targetEnvironment, 'PROD') }}:
+        - deployment: PropagateDataProd
+          displayName: 'Copy Data to PROD (with approval)'
+          environment: 'DataPropagation-PROD'   # <-- Requires approval gate
+          pool:
+            vmImage: 'windows-latest'
+          strategy:
+            runOnce:
+              deploy:
+                steps:
+                  - checkout: self
+                  - task: PowerShell@2
+                    displayName: 'Run Data Propagation Script'
+                    inputs:
+                      filePath: '$(Build.SourcesDirectory)/pipelines/scripts/Invoke-DataPropagation.ps1'
+                      arguments: >-
+                        -SourceConnectionString "$(SqlConnection_${{ parameters.sourceEnvironment }})"
+                        -TargetConnectionString "$(SqlConnection_${{ parameters.targetEnvironment }})"
+                        -TableList "${{ parameters.tableList }}"
+                        -SchemaName "${{ parameters.schemaName }}"
+                        -DryRun:$${{ parameters.dryRun }}
+                        -SourceEnv "${{ parameters.sourceEnvironment }}"
+                        -TargetEnv "${{ parameters.targetEnvironment }}"
+                    env:
+                      # Pass secrets explicitly so they're available
+                      SqlConnection_QA: $(SqlConnection_QA)
+                      SqlConnection_UAT: $(SqlConnection_UAT)
+                      SqlConnection_PROD: $(SqlConnection_PROD)
+
+      - ${{ else }}:
+        - job: PropagateData
+          displayName: 'Copy Data to ${{ parameters.targetEnvironment }}'
+          pool:
+            vmImage: 'windows-latest'
+          steps:
+            - checkout: self
+            - task: PowerShell@2
+              displayName: 'Run Data Propagation Script'
+              inputs:
+                filePath: '$(Build.SourcesDirectory)/pipelines/scripts/Invoke-DataPropagation.ps1'
+                arguments: >-
+                  -SourceConnectionString "$(SqlConnection_${{ parameters.sourceEnvironment }})"
+                  -TargetConnectionString "$(SqlConnection_${{ parameters.targetEnvironment }})"
+                  -TableList "${{ parameters.tableList }}"
+                  -SchemaName "${{ parameters.schemaName }}"
+                  -DryRun:$${{ parameters.dryRun }}
+                  -SourceEnv "${{ parameters.sourceEnvironment }}"
+                  -TargetEnv "${{ parameters.targetEnvironment }}"
+              env:
+                SqlConnection_DEV: $(SqlConnection_DEV)
+                SqlConnection_QA: $(SqlConnection_QA)
+                SqlConnection_UAT: $(SqlConnection_UAT)

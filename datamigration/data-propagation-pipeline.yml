@@ -20,7 +20,6 @@ trigger: none
 pr: none
 
 parameters:
-  # ─── Source Environment ───────────────────────────────────────────────
   - name: sourceEnvironment
     displayName: 'Source Environment'
     type: string
@@ -29,7 +28,6 @@ parameters:
       - QA
       - UAT
 
-  # ─── Target Environment ──────────────────────────────────────────────
   - name: targetEnvironment
     displayName: 'Target Environment'
     type: string
@@ -40,30 +38,21 @@ parameters:
       - UAT
       - PROD
 
-  # ─── Table List ──────────────────────────────────────────────────────
-  # Comma-separated, in DEPENDENCY ORDER (parent tables first).
-  # The script will truncate in reverse order and insert in this order.
   - name: tableList
     displayName: 'Tables to Copy (comma-separated, parent-first dependency order)'
     type: string
-    default: 'LookupCategory,LookupItem,RuleCategory,RuleSet,Rule,RuleCondition'
+    default: 'LookupAvianTypes,LookupGroupAgeRanges,VaccineTempRecordedWhens,LookupContactTypes,LookupCounties,LookupOperationTypes,LookupSpecies,LookupStates,LookupAnimalTypes,LookupControlZones,RolePermissions,LookupInspectionReasons,LookupResultCodes,LookupTreatments,LookupActivityTypeRules,LookupActivityTypeMimMappings,VaccineDosages,VaccineLocations,VaccineManufacturers,VaccineRoas,Vaccines,VacDosageXrefs,VacLocXrefs,VacRoaXrefs,VacSpecXrefs,LookupActivityTypes,LookupDiseases,LookupVerificationOfPayments,VaccineSeries,LookupOfficialIds,LookupSnomedCodeMappings,LookupBreeds,SpecialFunctions'
 
-  # ─── Schema Name ─────────────────────────────────────────────────────
   - name: schemaName
     displayName: 'Database Schema'
     type: string
     default: 'dbo'
 
-  # ─── Dry Run ─────────────────────────────────────────────────────────
   - name: dryRun
     displayName: 'Dry Run (preview only, no changes)'
     type: boolean
     default: false
 
-  # ─── PROD Confirmation ───────────────────────────────────────────────
-  # Replaces the Environment approval gate.
-  # When targeting PROD, you MUST set this to 'Yes' or the pipeline
-  # will stop with an error. Prevents accidental PROD deployments.
   - name: prodConfirmation
     displayName: 'PROD Confirmation (set to Yes ONLY when targeting PROD)'
     type: string
@@ -75,23 +64,12 @@ parameters:
 # ═══════════════════════════════════════════════════════════════════════════
 # VARIABLES
 # ═══════════════════════════════════════════════════════════════════════════
-#
-# Create a Variable Group named "DataPropagation-ConnectionStrings"
-# in Pipelines > Library with these SECRET variables:
-#
-#   SqlConnection_DEV
-#   SqlConnection_QA
-#   SqlConnection_UAT
-#   SqlConnection_PROD
-#
+# Variable Group in Pipelines > Library with SECRET variables:
+#   SqlConnection_DEV, SqlConnection_QA, SqlConnection_UAT, SqlConnection_PROD
 # ═══════════════════════════════════════════════════════════════════════════
 
 variables:
-  - group: DataPropagation-ConnectionStrings
-
-# ═══════════════════════════════════════════════════════════════════════════
-# SINGLE STAGE — Validate + Propagate in one job (no Environments needed)
-# ═══════════════════════════════════════════════════════════════════════════
+  - group: AHS-MOBILE-SYNC-DataPropagation-ConnectionStrings
 
 stages:
   - stage: DataPropagation
@@ -100,7 +78,7 @@ stages:
       - job: PropagateData
         displayName: 'Validate and Copy Data'
         pool:
-          vmImage: 'windows-latest'
+          name: 'MCE Linux'
         steps:
 
           # ── Step 1: Validate parameters ──────────────────────────────
@@ -124,29 +102,21 @@ stages:
                 Write-Host "  PROD Confirm: $prodConfirm"
                 Write-Host "========================================="
 
-                # Source and target cannot be the same
                 if ($source -eq $target) {
                     Write-Error "Source and target environments cannot be the same!"
                     exit 1
                 }
 
-                # Only allow valid propagation paths
-                $validPaths = @(
-                    "QA->DEV",
-                    "QA->UAT",
-                    "UAT->QA",
-                    "UAT->PROD"
-                )
+                $validPaths = @("QA->DEV", "QA->UAT", "UAT->QA", "UAT->PROD")
                 $currentPath = "$source->$target"
                 if ($currentPath -notin $validPaths) {
                     Write-Error "Invalid propagation path: $currentPath. Valid paths are: $($validPaths -join ', ')"
                     exit 1
                 }
 
-                # PROD safety gate
                 if ($target -eq "PROD") {
                     if ($prodConfirm -ne "Yes") {
-                        Write-Error "PROD target requires PROD Confirmation to be set to 'Yes'. This is a safety gate to prevent accidental production deployments. Re-run the pipeline and set PROD Confirmation to 'Yes' if you intend to deploy to production."
+                        Write-Error "PROD target requires PROD Confirmation to be set to 'Yes'. This is a safety gate to prevent accidental production deployments."
                         exit 1
                     }
                     Write-Host ""
@@ -157,25 +127,28 @@ stages:
 
                 Write-Host "Validation passed."
 
-          # ── Step 2: Checkout repo so script file is available ─────────
+          # ── Step 2: Checkout repo ────────────────────────────────────
           - checkout: self
 
           # ── Step 3: Run the data propagation script ──────────────────
+          #
+          # IMPORTANT: Secret variables from Variable Groups cannot be
+          # used directly in 'arguments' — they resolve to empty.
+          # Instead, we pass them via the 'env' block as environment
+          # variables, and the script reads them using $env:VAR_NAME.
+          #
           - task: PowerShell@2
             displayName: 'Run Data Propagation'
             inputs:
               filePath: '$(Build.SourcesDirectory)/pipelines/scripts/Invoke-DataPropagation.ps1'
               arguments: >-
-                -SourceConnectionString "$(SqlConnection_${{ parameters.sourceEnvironment }})"
-                -TargetConnectionString "$(SqlConnection_${{ parameters.targetEnvironment }})"
+                -SourceEnv "${{ parameters.sourceEnvironment }}"
+                -TargetEnv "${{ parameters.targetEnvironment }}"
                 -TableList "${{ parameters.tableList }}"
                 -SchemaName "${{ parameters.schemaName }}"
                 -DryRun:$${{ parameters.dryRun }}
-                -SourceEnv "${{ parameters.sourceEnvironment }}"
-                -TargetEnv "${{ parameters.targetEnvironment }}"
             env:
-              # Explicitly pass all secret variables so they resolve
-              SqlConnection_DEV: $(SqlConnection_DEV)
-              SqlConnection_QA: $(SqlConnection_QA)
-              SqlConnection_UAT: $(SqlConnection_UAT)
-              SqlConnection_PROD: $(SqlConnection_PROD)
+              SQLCONN_DEV: $(SqlConnection_DEV)
+              SQLCONN_QA: $(SqlConnection_QA)
+              SQLCONN_UAT: $(SqlConnection_UAT)
+              SQLCONN_PROD: $(SqlConnection_PROD)

@@ -5,22 +5,24 @@
 
 .DESCRIPTION
     This script:
-    1. Connects to both source and target Azure SQL databases
-    2. Discovers identity columns and FK constraints for the specified tables
-    3. Disables FK constraints on the target DB
-    4. Truncates target tables in REVERSE dependency order (child tables first)
-    5. Copies data from source to target using batched INSERT with IDENTITY_INSERT ON
-    6. Re-enables FK constraints
-    7. Validates that row counts match between source and target
+    1. Reads connection strings from environment variables (SQLCONN_DEV, SQLCONN_QA, etc.)
+       because Azure DevOps secret variables cannot be passed via command-line arguments.
+    2. Connects to both source and target Azure SQL databases
+    3. Discovers identity columns and FK constraints for the specified tables
+    4. Disables FK constraints on the target DB
+    5. Truncates target tables in REVERSE dependency order (child tables first)
+    6. Copies data from source to target using batched INSERT with IDENTITY_INSERT ON
+    7. Re-enables FK constraints
+    8. Validates that row counts match between source and target
 
-    Supported paths: QA→DEV, QA→UAT, UAT→QA, UAT→PROD.
+    Supported paths: QA->DEV, QA->UAT, UAT->QA, UAT->PROD.
     Designed to run as part of an Azure DevOps YAML pipeline (manual trigger).
 
-.PARAMETER SourceConnectionString
-    ADO.NET connection string for the source database.
+.PARAMETER SourceEnv
+    Source environment name (QA or UAT). Used to look up env var SQLCONN_{SourceEnv}.
 
-.PARAMETER TargetConnectionString
-    ADO.NET connection string for the target database.
+.PARAMETER TargetEnv
+    Target environment name (DEV, QA, UAT, or PROD). Used to look up env var SQLCONN_{TargetEnv}.
 
 .PARAMETER TableList
     Comma-separated list of table names in DEPENDENCY ORDER (parent tables first).
@@ -32,32 +34,25 @@
 .PARAMETER DryRun
     If true, logs all SQL that would be executed but makes no changes.
 
-.PARAMETER SourceEnv
-    Display label for the source environment (e.g., "QA").
-
-.PARAMETER TargetEnv
-    Display label for the target environment (e.g., "DEV").
-
 .PARAMETER BatchSize
     Number of rows per INSERT batch (default: 500). Keeps transactions small to
     avoid tempdb pressure on Azure SQL.
 
 .EXAMPLE
+    # Environment variables SQLCONN_QA and SQLCONN_DEV must be set
     .\Invoke-DataPropagation.ps1 `
-        -SourceConnectionString "Server=tcp:myserver.database.windows.net;..." `
-        -TargetConnectionString "Server=tcp:myserver.database.windows.net;..." `
+        -SourceEnv "QA" -TargetEnv "DEV" `
         -TableList "LookupCategory,LookupItem,RuleCategory,RuleSet,Rule" `
-        -SchemaName "dbo" `
-        -DryRun:$false
+        -SchemaName "dbo" -DryRun:$false
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$SourceConnectionString,
+    [string]$SourceEnv,
 
     [Parameter(Mandatory = $true)]
-    [string]$TargetConnectionString,
+    [string]$TargetEnv,
 
     [Parameter(Mandatory = $true)]
     [string]$TableList,
@@ -69,14 +64,35 @@ param(
     [switch]$DryRun,
 
     [Parameter(Mandatory = $false)]
-    [string]$SourceEnv = "SOURCE",
-
-    [Parameter(Mandatory = $false)]
-    [string]$TargetEnv = "TARGET",
-
-    [Parameter(Mandatory = $false)]
     [int]$BatchSize = 500
 )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESOLVE CONNECTION STRINGS FROM ENVIRONMENT VARIABLES
+# ─────────────────────────────────────────────────────────────────────────────
+# Secret variables from Azure DevOps Variable Groups cannot be passed as
+# command-line arguments — they resolve to empty. The YAML pipeline maps
+# them into environment variables via the 'env:' block, and we read them here.
+# ─────────────────────────────────────────────────────────────────────────────
+$sourceEnvVar = "SQLCONN_$SourceEnv"
+$targetEnvVar = "SQLCONN_$TargetEnv"
+
+$SourceConnectionString = [System.Environment]::GetEnvironmentVariable($sourceEnvVar)
+$TargetConnectionString = [System.Environment]::GetEnvironmentVariable($targetEnvVar)
+
+if ([string]::IsNullOrWhiteSpace($SourceConnectionString)) {
+    Write-Error "Source connection string is empty. Environment variable '$sourceEnvVar' was not set. Check that your Variable Group contains 'SqlConnection_$SourceEnv' and that the pipeline 'env:' block maps it to '$sourceEnvVar'."
+    exit 1
+}
+
+if ([string]::IsNullOrWhiteSpace($TargetConnectionString)) {
+    Write-Error "Target connection string is empty. Environment variable '$targetEnvVar' was not set. Check that your Variable Group contains 'SqlConnection_$TargetEnv' and that the pipeline 'env:' block maps it to '$targetEnvVar'."
+    exit 1
+}
+
+Write-Host "Connection strings loaded from environment variables."
+Write-Host "  Source: $sourceEnvVar ($(($SourceConnectionString).Length) chars)"
+Write-Host "  Target: $targetEnvVar ($(($TargetConnectionString).Length) chars)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STRICT ERROR HANDLING

@@ -1,0 +1,160 @@
+# =============================================================================
+# DATA PROPAGATION PIPELINE
+# =============================================================================
+# Trigger:  Manual only
+# Agent:    Default (Windows) pool
+#
+# Builds and runs a .NET 10 console app that copies lookup/rules table data
+# from a source Azure SQL DB to a target Azure SQL DB.
+#
+# Supported Paths:
+#   QA  → DEV  |  QA  → UAT  |  UAT → QA  |  UAT → PROD
+# =============================================================================
+
+trigger: none
+pr: none
+
+parameters:
+  - name: sourceEnvironment
+    displayName: 'Source Environment'
+    type: string
+    default: 'QA'
+    values:
+      - QA
+      - UAT
+
+  - name: targetEnvironment
+    displayName: 'Target Environment'
+    type: string
+    default: 'DEV'
+    values:
+      - DEV
+      - QA
+      - UAT
+      - PROD
+
+  - name: tableList
+    displayName: 'Tables to Copy (comma-separated, parent-first dependency order)'
+    type: string
+    default: 'LookupAvianTypes,LookupGroupAgeRanges,VaccineTempRecordedWhens,LookupContactTypes,LookupCounties,LookupOperationTypes,LookupSpecies,LookupStates,LookupAnimalTypes,LookupControlZones,RolePermissions,LookupInspectionReasons,LookupResultCodes,LookupTreatments,LookupActivityTypeRules,LookupActivityTypeMimMappings,VaccineDosages,VaccineLocations,VaccineManufacturers,VaccineRoas,Vaccines,VacDosageXrefs,VacLocXrefs,VacRoaXrefs,VacSpecXrefs,LookupActivityTypes,LookupDiseases,LookupVerificationOfPayments,VaccineSeries,LookupOfficialIds,LookupSnomedCodeMappings,LookupBreeds,SpecialFunctions'
+
+  - name: schemaName
+    displayName: 'Database Schema'
+    type: string
+    default: 'dbo'
+
+  - name: dryRun
+    displayName: 'Dry Run (preview only, no changes)'
+    type: boolean
+    default: false
+
+  - name: prodConfirmation
+    displayName: 'PROD Confirmation (set to Yes ONLY when targeting PROD)'
+    type: string
+    default: 'No'
+    values:
+      - 'No'
+      - 'Yes'
+
+variables:
+  - group: AHS-MOBILE-SYNC-DataPropagation-ConnectionStrings
+
+stages:
+  - stage: DataPropagation
+    displayName: 'Data Propagation: ${{ parameters.sourceEnvironment }} → ${{ parameters.targetEnvironment }}'
+    jobs:
+      - job: PropagateData
+        displayName: 'Validate and Copy Data'
+        pool:
+          name: 'Default'
+        steps:
+
+          # ── Validate parameters ──────────────────────────────────────
+          - task: PowerShell@2
+            displayName: 'Validate Parameters'
+            inputs:
+              targetType: 'inline'
+              script: |
+                $source = "${{ parameters.sourceEnvironment }}"
+                $target = "${{ parameters.targetEnvironment }}"
+                $prodConfirm = "${{ parameters.prodConfirmation }}"
+
+                Write-Host "========================================="
+                Write-Host "  DATA PROPAGATION PIPELINE"
+                Write-Host "========================================="
+                Write-Host "  Source:       $source"
+                Write-Host "  Target:       $target"
+                Write-Host "  Tables:       ${{ parameters.tableList }}"
+                Write-Host "  Schema:       ${{ parameters.schemaName }}"
+                Write-Host "  Dry Run:      ${{ parameters.dryRun }}"
+                Write-Host "  PROD Confirm: $prodConfirm"
+                Write-Host "========================================="
+
+                if ($source -eq $target) {
+                    Write-Error "Source and target environments cannot be the same!"
+                    exit 1
+                }
+
+                $validPaths = @("QA->DEV", "QA->UAT", "UAT->QA", "UAT->PROD")
+                $currentPath = "$source->$target"
+                if ($currentPath -notin $validPaths) {
+                    Write-Error "Invalid propagation path: $currentPath. Valid paths are: $($validPaths -join ', ')"
+                    exit 1
+                }
+
+                if ($target -eq "PROD") {
+                    if ($prodConfirm -ne "Yes") {
+                        Write-Error "PROD target requires PROD Confirmation to be set to 'Yes'. This is a safety gate to prevent accidental production deployments."
+                        exit 1
+                    }
+                    Write-Host ""
+                    Write-Host "  *** PROD CONFIRMATION RECEIVED ***"
+                    Write-Host "  Data will be written to PRODUCTION."
+                    Write-Host ""
+                }
+
+                Write-Host "Validation passed."
+
+          # ── Checkout repo ────────────────────────────────────────────
+          - checkout: self
+
+          # ── Install .NET 10 SDK ──────────────────────────────────────
+          - task: UseDotNet@2
+            displayName: 'Install .NET 10 SDK'
+            inputs:
+              packageType: 'sdk'
+              version: '10.x'
+
+          # ── Build the console app ────────────────────────────────────
+          - task: DotNetCoreCLI@2
+            displayName: 'Build DataPropagation'
+            inputs:
+              command: 'build'
+              projects: '$(Build.SourcesDirectory)/tools/DataPropagation/DataPropagation.csproj'
+              arguments: '--configuration Release'
+
+          # ── Run the console app ──────────────────────────────────────
+          #
+          # Connection strings flow:
+          #   Variable Group → YAML env block → Environment Variables →
+          #   Environment.GetEnvironmentVariable() in C#
+          #
+          - task: DotNetCoreCLI@2
+            displayName: 'Run Data Propagation'
+            inputs:
+              command: 'run'
+              projects: '$(Build.SourcesDirectory)/tools/DataPropagation/DataPropagation.csproj'
+              arguments: >-
+                --configuration Release
+                --
+                --source ${{ parameters.sourceEnvironment }}
+                --target ${{ parameters.targetEnvironment }}
+                --tables "${{ parameters.tableList }}"
+                --schema ${{ parameters.schemaName }}
+                ${{ if eq(parameters.dryRun, true) }}:
+                  --dry-run
+            env:
+              SQLCONN_DEV: $(SqlConnection_DEV)
+              SQLCONN_QA: $(SqlConnection_QA)
+              SQLCONN_UAT: $(SqlConnection_UAT)
+              SQLCONN_PROD: $(SqlConnection_PROD)

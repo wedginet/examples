@@ -5,18 +5,17 @@
 
 .DESCRIPTION
     This script:
-    1. Reads connection strings from environment variables (SQLCONN_DEV, SQLCONN_QA, etc.)
-       because Azure DevOps secret variables cannot be passed via command-line arguments.
-    2. Connects to both source and target Azure SQL databases
-    3. Discovers identity columns and FK constraints for the specified tables
-    4. Disables FK constraints on the target DB
-    5. Truncates target tables in REVERSE dependency order (child tables first)
-    6. Copies data from source to target using batched INSERT with IDENTITY_INSERT ON
-    7. Re-enables FK constraints
-    8. Validates that row counts match between source and target
+    1. Installs Microsoft.Data.SqlClient (required for Linux/PowerShell Core on Azure SQL)
+    2. Reads connection strings from environment variables (SQLCONN_DEV, SQLCONN_QA, etc.)
+    3. Connects to both source and target Azure SQL databases
+    4. Discovers identity columns and FK constraints for the specified tables
+    5. Disables FK constraints on the target DB
+    6. Deletes target table data in REVERSE dependency order (child tables first)
+    7. Copies data from source to target using batched INSERT with IDENTITY_INSERT ON
+    8. Re-enables FK constraints
+    9. Validates that row counts match between source and target
 
     Supported paths: QA->DEV, QA->UAT, UAT->QA, UAT->PROD.
-    Designed to run as part of an Azure DevOps YAML pipeline (manual trigger).
 
 .PARAMETER SourceEnv
     Source environment name (QA or UAT). Used to look up env var SQLCONN_{SourceEnv}.
@@ -26,7 +25,6 @@
 
 .PARAMETER TableList
     Comma-separated list of table names in DEPENDENCY ORDER (parent tables first).
-    The script truncates in reverse order and inserts in forward order.
 
 .PARAMETER SchemaName
     Database schema name (default: dbo).
@@ -35,15 +33,7 @@
     If true, logs all SQL that would be executed but makes no changes.
 
 .PARAMETER BatchSize
-    Number of rows per INSERT batch (default: 500). Keeps transactions small to
-    avoid tempdb pressure on Azure SQL.
-
-.EXAMPLE
-    # Environment variables SQLCONN_QA and SQLCONN_DEV must be set
-    .\Invoke-DataPropagation.ps1 `
-        -SourceEnv "QA" -TargetEnv "DEV" `
-        -TableList "LookupCategory,LookupItem,RuleCategory,RuleSet,Rule" `
-        -SchemaName "dbo" -DryRun:$false
+    Number of rows per INSERT batch (default: 500).
 #>
 
 [CmdletBinding()]
@@ -68,11 +58,70 @@ param(
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# RESOLVE CONNECTION STRINGS FROM ENVIRONMENT VARIABLES
+# STRICT ERROR HANDLING
 # ─────────────────────────────────────────────────────────────────────────────
-# Secret variables from Azure DevOps Variable Groups cannot be passed as
-# command-line arguments — they resolve to empty. The YAML pipeline maps
-# them into environment variables via the 'env:' block, and we read them here.
+$ErrorActionPreference = "Stop"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 0: INSTALL Microsoft.Data.SqlClient
+# ─────────────────────────────────────────────────────────────────────────────
+# System.Data.SqlClient does not work reliably on Linux/PowerShell Core with
+# Azure SQL. Microsoft.Data.SqlClient is the supported cross-platform driver.
+# ─────────────────────────────────────────────────────────────────────────────
+Write-Host "── Step 0: Loading SQL Client driver ─────────────────────────"
+
+# Check if Microsoft.Data.SqlClient is already available
+$sqlClientLoaded = $false
+try {
+    [void][Microsoft.Data.SqlClient.SqlConnection]
+    $sqlClientLoaded = $true
+    Write-Host "  Microsoft.Data.SqlClient already loaded."
+}
+catch {
+    Write-Host "  Microsoft.Data.SqlClient not found, installing via NuGet..."
+}
+
+if (-not $sqlClientLoaded) {
+    # Register NuGet if needed
+    $nuget = Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue
+    if (-not $nuget) {
+        Write-Host "  Installing NuGet package provider..."
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+    }
+
+    # Install the package
+    Write-Host "  Installing Microsoft.Data.SqlClient..."
+    $pkg = Install-Package Microsoft.Data.SqlClient -Source 'https://www.nuget.org/api/v2' `
+        -Force -Scope CurrentUser -SkipDependencies -ErrorAction Stop
+
+    # Find and load the DLL
+    $pkgPath = ($pkg).Source | Split-Path
+    # Look for the netcore/net6+ compatible DLL
+    $dllPath = Get-ChildItem -Path $pkgPath -Recurse -Filter "Microsoft.Data.SqlClient.dll" |
+        Where-Object { $_.FullName -match "net[6-9]|netcoreapp|netstandard" } |
+        Sort-Object { $_.FullName } -Descending |
+        Select-Object -First 1
+
+    if (-not $dllPath) {
+        # Fallback: any DLL
+        $dllPath = Get-ChildItem -Path $pkgPath -Recurse -Filter "Microsoft.Data.SqlClient.dll" |
+            Select-Object -First 1
+    }
+
+    if (-not $dllPath) {
+        Write-Error "Could not find Microsoft.Data.SqlClient.dll after installation."
+        exit 1
+    }
+
+    Write-Host "  Loading from: $($dllPath.FullName)"
+    Add-Type -Path $dllPath.FullName
+}
+
+Write-Host "  SQL Client driver ready."
+Write-Host ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESOLVE CONNECTION STRINGS FROM ENVIRONMENT VARIABLES
 # ─────────────────────────────────────────────────────────────────────────────
 $sourceEnvVar = "SQLCONN_$SourceEnv"
 $targetEnvVar = "SQLCONN_$TargetEnv"
@@ -95,12 +144,8 @@ Write-Host "  Source: $sourceEnvVar ($(($SourceConnectionString).Length) chars)"
 Write-Host "  Target: $targetEnvVar ($(($TargetConnectionString).Length) chars)"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STRICT ERROR HANDLING
-# ─────────────────────────────────────────────────────────────────────────────
-$ErrorActionPreference = "Stop"
-
-# ─────────────────────────────────────────────────────────────────────────────
 # HELPER: Execute SQL and return results (or just execute)
+# Uses Microsoft.Data.SqlClient (cross-platform, Azure SQL compatible)
 # ─────────────────────────────────────────────────────────────────────────────
 function Invoke-Sql {
     param(
@@ -110,7 +155,7 @@ function Invoke-Sql {
         [int]$Timeout = 120
     )
 
-    $connection = New-Object System.Data.SqlClient.SqlConnection($ConnectionString)
+    $connection = New-Object Microsoft.Data.SqlClient.SqlConnection($ConnectionString)
     try {
         $connection.Open()
         $command = $connection.CreateCommand()
@@ -122,7 +167,7 @@ function Invoke-Sql {
             return $rowsAffected
         }
         else {
-            $adapter = New-Object System.Data.SqlClient.SqlDataAdapter($command)
+            $adapter = New-Object Microsoft.Data.SqlClient.SqlDataAdapter($command)
             $dataSet = New-Object System.Data.DataSet
             [void]$adapter.Fill($dataSet)
             return $dataSet.Tables[0]
@@ -144,7 +189,7 @@ function Invoke-SqlTransaction {
         [int]$Timeout = 300
     )
 
-    $connection = New-Object System.Data.SqlClient.SqlConnection($ConnectionString)
+    $connection = New-Object Microsoft.Data.SqlClient.SqlConnection($ConnectionString)
     $transaction = $null
     try {
         $connection.Open()
@@ -264,7 +309,6 @@ ORDER BY ORDINAL_POSITION
     $cols = Invoke-Sql -ConnectionString $SourceConnectionString -Query $colQuery
     $colNames = @()
     foreach ($row in $cols.Rows) {
-        # Exclude computed columns — they can't be inserted into
         $colNames += $row.COLUMN_NAME
     }
     $tableColumns[$table] = $colNames
@@ -357,14 +401,11 @@ foreach ($fk in $fkList) {
 Write-Host ""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 7: TRUNCATE TARGET TABLES (reverse dependency order)
+# STEP 7: DELETE TARGET TABLE DATA (reverse dependency order)
 # ─────────────────────────────────────────────────────────────────────────────
-Write-Host "── Step 7: Truncating target tables (reverse order) ──────────"
+Write-Host "── Step 7: Deleting target table data (reverse order) ────────"
 
 foreach ($table in $tablesReversed) {
-    # Use DELETE instead of TRUNCATE because TRUNCATE can fail if there are
-    # FK references from tables NOT in our list.
-    # DELETE is slower but safer in this context.
     $deleteSql = "DELETE FROM [$SchemaName].[$table]"
     Write-Host "  DELETE FROM [$SchemaName].[$table]"
     if (-not $DryRun) {
@@ -483,7 +524,6 @@ Write-Host ""
 Write-Host "── Step 9: Re-enabling FK constraints ────────────────────────"
 
 foreach ($fk in $fkList) {
-    # WITH CHECK ensures existing data is validated against the constraint
     $enableSql = "ALTER TABLE [$SchemaName].[$($fk.Parent)] WITH CHECK CHECK CONSTRAINT [$($fk.Name)]"
     Write-Host "  CHECK: $($fk.Name) on $($fk.Parent)"
     if (-not $DryRun) {

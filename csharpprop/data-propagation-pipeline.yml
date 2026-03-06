@@ -139,22 +139,44 @@ stages:
           #   Variable Group → YAML env block → Environment Variables →
           #   Environment.GetEnvironmentVariable() in C#
           #
-          - task: DotNetCoreCLI@2
-            displayName: 'Run Data Propagation'
-            inputs:
-              command: 'run'
-              projects: '$(Build.SourcesDirectory)/tools/DataPropagation/DataPropagation.csproj'
-              arguments: >-
-                --configuration Release
-                --
-                --source ${{ parameters.sourceEnvironment }}
-                --target ${{ parameters.targetEnvironment }}
-                --tables "${{ parameters.tableList }}"
-                --schema ${{ parameters.schemaName }}
-                ${{ if eq(parameters.dryRun, true) }}:
+          # Two conditional tasks: one for dry run, one for live.
+          # Only one will execute based on the dryRun parameter.
+          #
+          - ${{ if eq(parameters.dryRun, true) }}:
+            - task: DotNetCoreCLI@2
+              displayName: 'Run Data Propagation (DRY RUN)'
+              inputs:
+                command: 'run'
+                projects: '$(Build.SourcesDirectory)/tools/DataPropagation/DataPropagation.csproj'
+                arguments: >-
+                  --configuration Release
+                  --
+                  --source ${{ parameters.sourceEnvironment }}
+                  --target ${{ parameters.targetEnvironment }}
+                  --tables "${{ parameters.tableList }}"
+                  --schema ${{ parameters.schemaName }}
                   --dry-run
-            env:
-              SQLCONN_DEV: $(SqlConnection_DEV)
-              SQLCONN_QA: $(SqlConnection_QA)
-              SQLCONN_UAT: $(SqlConnection_UAT)
-              SQLCONN_PROD: $(SqlConnection_PROD)
+              env:
+                SQLCONN_DEV: $(SqlConnection_DEV)
+                SQLCONN_QA: $(SqlConnection_QA)
+                SQLCONN_UAT: $(SqlConnection_UAT)
+                SQLCONN_PROD: $(SqlConnection_PROD)
+
+          - ${{ else }}:
+            - task: DotNetCoreCLI@2
+              displayName: 'Run Data Propagation'
+              inputs:
+                command: 'run'
+                projects: '$(Build.SourcesDirectory)/tools/DataPropagation/DataPropagation.csproj'
+                arguments: >-
+                  --configuration Release
+                  --
+                  --source ${{ parameters.sourceEnvironment }}
+                  --target ${{ parameters.targetEnvironment }}
+                  --tables "${{ parameters.tableList }}"
+                  --schema ${{ parameters.schemaName }}
+              env:
+                SQLCONN_DEV: $(SqlConnection_DEV)
+                SQLCONN_QA: $(SqlConnection_QA)
+                SQLCONN_UAT: $(SqlConnection_UAT)
+                SQLCONN_PROD: $(SqlConnection_PROD)

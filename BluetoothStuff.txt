@@ -1,0 +1,57 @@
+ Here are two solid strategies you can layer together:
+1. Use Bonded (Paired) Devices Only
+This is your biggest win. Instead of scanning for all nearby devices, query the Android BluetoothAdapter for its already-paired device list. Since RFID scanners require explicit pairing before they're usable anyway, this cuts out every TV and smart appliance that was never paired.
+csharp// Platform-specific Android call
+#if ANDROID
+var adapter = Android.Bluetooth.BluetoothAdapter.DefaultAdapter;
+var bondedDevices = adapter?.BondedDevices; // Only devices the user has already paired
+#endif
+In your Bluetooth service, you'd swap your scan/discovery results for this bonded list. The user would pair the scanner in Android Settings first (one-time setup), and then your app just picks it up cleanly. This alone will eliminate 90% of the noise.
+2. Filter by Bluetooth Device Class
+Android's BluetoothDevice exposes a BluetoothClass that categorizes the device type at the hardware level. You can use this to exclude obvious non-starters:
+csharpusing Android.Bluetooth;
+
+bool IsLikelyScanner(BluetoothDevice device)
+{
+    var majorClass = device.BluetoothClass?.MajorDeviceClass;
+
+    // Exclude audio/video (TVs, speakers, headphones)
+    if (majorClass == DeviceClass.AudioVideo) return false;
+
+    // Exclude phones (if you don't want other phones showing up)
+    if (majorClass == DeviceClass.Phone) return false;
+
+    // RFID scanners typically show as Peripheral or Uncategorized
+    // DeviceClass.Peripheral covers keyboards, mice, scanners
+    return majorClass == DeviceClass.Peripheral
+        || majorClass == DeviceClass.Uncategorized;
+}
+3. SPP UUID Check (More Precise, but Slower)
+Classic Bluetooth RFID scanners almost universally use the Serial Port Profile (SPP), UUID 00001101-0000-1000-8000-00805F9B34FB. You can check advertised UUIDs after an SDP fetch:
+csharpvar sppUuid = Java.Util.UUID.FromString("00001101-0000-1000-8000-00805F9B34FB");
+
+bool UsesSpp(BluetoothDevice device)
+{
+    var uuids = device.GetUuids(); // Requires device to be bonded or SDP fetched
+    return uuids?.Any(u => u.Uuid.Equals(sppUuid)) ?? false;
+}
+The catch: GetUuids() returns cached UUIDs for bonded devices, which works well. For unbonded devices you'd need FetchUuidsWithSdp() which is async and slower. If you've already committed to bonded-only, this is a great secondary check.
+4. Name Pattern as a Last Resort
+If your RFID scanners come from known vendors (Zebra, Honeywell, TSL, Chainway, Unitech, etc.) you can do a simple name prefix check:
+csharpprivate static readonly string[] KnownScannerPrefixes = 
+    { "TSL", "Zebra", "Honeywell", "RFD", "CS108", "Chainway" };
+
+bool HasKnownScannerName(string name) =>
+    KnownScannerPrefixes.Any(p => 
+        name.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+This is fragile if your customer base uses varied hardware, but it's a useful last layer if you know your target devices.
+
+Recommended Approach
+Layer them in this order of priority:
+
+Bonded only — eliminates everything the user never intentionally paired
+Exclude AudioVideo class — kills TVs and speakers that somehow got bonded
+SPP UUID check — confirms it's a serial device, not a keyboard or mouse
+Name filter — optional, if you want to be even more targeted
+
+The bonded + device class combo alone should give your users a clean, scanner-only list in almost every real-world scenario.

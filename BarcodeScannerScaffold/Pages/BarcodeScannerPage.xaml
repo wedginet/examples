@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:scanner="clr-namespace:BarcodeScanning;assembly=BarcodeScanning.Native.Maui"
+             x:Class="YourApp.Pages.BarcodeScannerPage"
+             Title="Scan Barcode"
+             BackgroundColor="Black">
+
+    <Grid RowDefinitions="*, Auto">
+
+        <!-- ============================================================
+             CAMERA VIEW
+             ============================================================ -->
+        <scanner:CameraView Grid.Row="0"
+                            x:Name="CameraView"
+                            OnDetectionFinished="OnDetectionFinished"
+                            CameraEnabled="True"
+                            PauseScanning="False"
+                            VibrationOnDetected="True"
+                            AimMode="True"
+                            ViewfinderMode="True" />
+
+        <!-- ============================================================
+             BOTTOM BUTTON BAR
+             ============================================================ -->
+        <Grid Grid.Row="1"
+              ColumnDefinitions="Auto, *, Auto, Auto"
+              ColumnSpacing="10"
+              Padding="20"
+              BackgroundColor="#222">
+
+            <!-- Cancel button (always present) -->
+            <Button Grid.Column="0"
+                    Text="Cancel"
+                    Clicked="OnCancelClicked" />
+
+            <!-- Spacer -->
+            <BoxView Grid.Column="1" Color="Transparent" />
+
+            <!-- ===== OPTIONAL FEATURE: TORCH TOGGLE — START =====
+                 To remove: delete this Button element.
+                 Also delete the matching block in BarcodeScannerPage.xaml.cs.
+            -->
+            <Button Grid.Column="2"
+                    x:Name="TorchButton"
+                    Text="🔦 Torch"
+                    Clicked="OnTorchToggleClicked" />
+            <!-- ===== OPTIONAL FEATURE: TORCH TOGGLE — END ===== -->
+
+            <!-- ===== OPTIONAL FEATURE: CAMERA FLIP — START =====
+                 To remove: delete this Button element.
+                 Also delete the matching block in BarcodeScannerPage.xaml.cs.
+            -->
+            <Button Grid.Column="3"
+                    x:Name="FlipCameraButton"
+                    Text="🔄 Flip"
+                    Clicked="OnFlipCameraClicked" />
+            <!-- ===== OPTIONAL FEATURE: CAMERA FLIP — END ===== -->
+
+        </Grid>
+
+    </Grid>
+</ContentPage>

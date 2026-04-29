@@ -1,0 +1,17 @@
+<!--
+=============================================================================
+Platforms/Android/AndroidManifest.xml — ADDITIONS ONLY
+Place these inside the <manifest> element, alongside any existing
+<uses-permission> entries.
+=============================================================================
+-->
+
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-feature android:name="android.hardware.camera" android:required="false" />
+
+<!--
+Optional: only needed if you use the TORCH TOGGLE feature.
+Most devices grant torch automatically with CAMERA permission, but adding
+this is harmless and explicit.
+-->
+<uses-permission android:name="android.permission.FLASHLIGHT" />

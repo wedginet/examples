@@ -1,0 +1,11 @@
+<!--
+=============================================================================
+Platforms/iOS/Info.plist — ADDITIONS ONLY
+Place these inside the top-level <dict> element.
+The string in NSCameraUsageDescription is shown verbatim in the iOS
+permission prompt — edit it to match your app's wording.
+=============================================================================
+-->
+
+<key>NSCameraUsageDescription</key>
+<string>We use the camera to scan barcodes into the entry field.</string>

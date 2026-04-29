@@ -1,0 +1,38 @@
+@*
+    Reference example only — copy the inject + button + handler into the
+    Razor component that hosts your custom keyboard. The label here stands
+    in for your existing simulated INPUT label.
+*@
+
+@inject YourApp.Services.IBarcodeScannerService Scanner
+
+<div class="entry-row">
+    <label class="entry-display">@LabelValue</label>
+</div>
+
+<div class="keypad-extras">
+    <button type="button" class="key-btn scan-btn" @onclick="OnScanClicked">
+        📷 Scan
+    </button>
+</div>
+
+@code {
+    private string LabelValue { get; set; } = string.Empty;
+
+    private async Task OnScanClicked()
+    {
+        try
+        {
+            var scanned = await Scanner.ScanAsync();
+            if (!string.IsNullOrWhiteSpace(scanned))
+            {
+                LabelValue = scanned;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Scan failed: {ex}");
+        }
+    }
+}

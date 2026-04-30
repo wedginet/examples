@@ -1,0 +1,47 @@
+@*
+    REFERENCE EXAMPLE ONLY.
+
+    This file shows the three things you need to add to your existing
+    Razor component in AHS.BlazorShared (the one with your custom
+    keyboard and the simulated INPUT label):
+
+      1. The @inject directive at the top
+      2. A button somewhere in your markup that calls OnScanClicked
+      3. The OnScanClicked handler in the @code block
+
+    Copy those three pieces into your existing component. You do NOT
+    need to keep this file in your project.
+*@
+
+@inject AHS.BlazorShared.Services.IBarcodeScannerService Scanner
+
+<div class="entry-row">
+    <label class="entry-display">@LabelValue</label>
+</div>
+
+<div class="keypad-extras">
+    <button type="button" class="key-btn scan-btn" @onclick="OnScanClicked">
+        📷 Scan
+    </button>
+</div>
+
+@code {
+    private string LabelValue { get; set; } = string.Empty;
+
+    private async Task OnScanClicked()
+    {
+        try
+        {
+            var scanned = await Scanner.ScanAsync();
+            if (!string.IsNullOrWhiteSpace(scanned))
+            {
+                LabelValue = scanned;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Scan failed: {ex}");
+        }
+    }
+}

@@ -1,0 +1,16 @@
+<!--
+=============================================================================
+AHS.Maui / Platforms/Android/AndroidManifest.xml — ADDITIONS ONLY
+Place these inside the <manifest> element, alongside any existing
+<uses-permission> entries.
+=============================================================================
+-->
+
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-feature android:name="android.hardware.camera" android:required="false" />
+
+<!--
+Optional: only needed if you keep the TORCH TOGGLE feature.
+Most devices grant torch with CAMERA permission, but adding this is harmless.
+-->
+<uses-permission android:name="android.permission.FLASHLIGHT" />

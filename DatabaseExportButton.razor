@@ -1,0 +1,53 @@
+@using AHS.Mobile.Services
+@inject IDatabaseExportService DatabaseExportService
+
+<div class="d-grid gap-2">
+    <button class="btn btn-outline-secondary" type="button"
+            disabled="@_isExporting"
+            @onclick="HandleExportClickedAsync">
+        @if (_isExporting)
+        {
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            <span>Preparing export&hellip;</span>
+        }
+        else
+        {
+            <span>Share Diagnostic Database Export</span>
+        }
+    </button>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger py-2 mb-0" role="alert">
+            @_errorMessage
+        </div>
+    }
+</div>
+
+@code {
+    private bool _isExporting;
+    private string? _errorMessage;
+
+    private async Task HandleExportClickedAsync()
+    {
+        _errorMessage = null;
+        _isExporting = true;
+        StateHasChanged();
+
+        try
+        {
+            await DatabaseExportService.ExportAndShareAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Could not export the database. Please try again.";
+            // TODO: route through whatever logging/telemetry the app already uses.
+            System.Diagnostics.Debug.WriteLine(ex);
+        }
+        finally
+        {
+            _isExporting = false;
+            StateHasChanged();
+        }
+    }
+}

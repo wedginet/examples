@@ -1,0 +1,120 @@
+Below is the overall design, followed by the questions that will finalize it. The draft YAML in azure-pipelines-ahs-android.yml follows this design. Its placeholders are marked TODO so Copilot can fill them in.
+
+The flow
+Someone runs the pipeline manually and picks the Environment (Dev/QA/UAT/Prod), the Play track, and whether the upload is a draft.
+Build stage: The agent installs .NET 10, JDK 17, and the maui-android workload. It downloads your keystore and runs dotnet publish on only AHS.Maui.csproj, using -c Publish_<env> and -f net10.0-android. That build produces an AAB signed with your upload key, which is saved as a pipeline artifact.
+Upload stage: This is a deployment job tied to an Azure DevOps Environment, so Prod can require an approval. It uploads the AAB to Play through the Google Play extension.
+What you need to create (one-time setup)
+
+In Google Cloud and Play Console
+
+A Google Cloud project with the Google Play Android Developer API enabled.
+A service account in that project, plus a JSON key for it.
+In Play Console, go to Users and permissions and invite the service account’s email. Grant it release permissions for this app only.
+Your organization is government. Check early whether creating service account keys is allowed by policy. That is the most likely blocker.
+
+In Azure DevOps
+
+Install the Google Play extension from the Marketplace. It provides the GooglePlayRelease task.
+Create a service connection of type Google Play, using the JSON key.
+Upload the keystore under Pipelines > Library > Secure files.
+Create a variable group containing the key alias, the store password (secret), and the key password (secret).
+Create Environments named AHS-Play-Dev, QA, UAT, and Prod. Put an Approvals check on Prod, and optionally a branch restriction (main only).
+Lock the secure file, variable group, and service connection to this one pipeline instead of “all pipelines”. Then control who can run it through pipeline permissions.
+Signing (avoiding the two-day wait)
+
+The “Ad hoc” choice in Visual Studio is only a distribution label. What matters is the keystore. You almost certainly use Play App Signing, which means your local keystore holds the upload key. As long as the pipeline signs with that same keystore and alias, Play accepts the bundle immediately. The wait only happens if the upload key changes.
+
+To confirm you have the right key:
+
+Run keytool -list -v -keystore yourfile.keystore -alias youralias and note the SHA-1.
+In Play Console, open App integrity > App signing and compare it to the upload key certificate SHA-1. They should match.
+
+The pipeline passes the passwords using MSBuild’s env: prefix, so they never appear on the command line. Keep an offline backup of the keystore. Secure Files cannot be downloaded back out of DevOps.
+
+Versioning
+
+Play requires each upload’s version code to be unique and higher than every previous upload for that package. This is true across all tracks, not per track.
+
+I recommend splitting the two version numbers:
+
+Version code (ApplicationVersion): set automatically by the pipeline with a DevOps counter(). Seed it above your current highest code.
+Display version (ApplicationDisplayVersion): keep bumping this manually in the csproj, as you do today.
+
+This prevents failed uploads from someone forgetting to increment. It also avoids having the pipeline commit version changes back to the repo, which gets messy.
+
+Configuration gotcha
+
+When you publish AHS.Maui with -c Publish_QA, that configuration name flows into the four referenced projects as well. If those projects don’t define Publish_*, they build with no Optimize/Release defaults.
+
+Check that every project treats Publish_* like Release. A Directory.Build.props at the solution root with a condition such as $(Configuration.StartsWith('Publish_')) that sets Optimize=true is the cleanest way to do that.
+
+Questions to settle before handing off to Copilot
+One Play app or four? Are Dev/QA/UAT/Prod the same package name (one Play listing, different tracks)? Or separate apps (for example, ...ahs.qa)? This decides the package name mapping and how the tracks are used.
+What does “library” mean to you? The Play API has no exact equivalent of the console’s “Upload to library” button. The closest is uploading to the internal track as a draft release, which puts the bundle in App bundle explorer without rolling anything out to testers. That is the default in the draft. Does that fit, or do you want QA/UAT to actually reach testers on internal or closed tracks?
+Agents: Are Microsoft-hosted agents allowed in your organization, or do you need a self-hosted Windows agent? That one line is easy to change.
+
+Once you answer those, I can tighten the YAML or write the exact instructions for Copilot.
+
+
+Yes, it makes a difference, and it’s a good one. The branch becomes the source of truth for which environment you’re building, so you no longer need an environment parameter.
+
+With a dropdown, someone could pick “Prod” while running from the Development branch. That would ship unreleased Dev code with Prod settings. Tying the configuration to the branch makes that mistake impossible.
+
+What changed in azure-pipelines-ahs-android.yml
+
+No environment parameter anymore. The pipeline reads the branch it was run from and maps it to a configuration:
+Development → Publish_Dev
+QA → Publish_QA
+UAT → Publish_UAT
+PROD → Publish_Prod
+Any other branch (a feature branch, for example) fails at the first step with a clear message.
+Running it is simpler for the team. In the “Run pipeline” dialog they pick the branch, and optionally the track and the draft toggle, then click Run.
+The version code counter stays shared across all four branches. That’s required if they all upload to the same Play app. If each environment is its own Play app, separate counters per branch would also work, but one counter is still harmless.
+
+Settings to add in Azure DevOps because of the branches
+
+Lock down Prod. On the AHS-Play-Prod environment, add a Branch control check that allows only refs/heads/PROD, alongside the Approvals check. That way, even an edited copy of the YAML can’t push a Prod release from another branch.
+Add branch policies on QA, UAT, and PROD. Require a pull request, at minimum, so code reaches those branches only by promotion and never by a direct push. This is what makes the branch truly mean “this is QA code.”
+Optional: build automatically on merge. The file currently runs manually only (trigger: none). You could set it to trigger automatically on merges to Development and QA, for example, and keep UAT and PROD manual. That’s a one-block change if you want it.
+
+The three earlier questions still stand, and the most important is the first: is this one Play app or four? If it’s four separate apps, I’ll add a package name mapping per branch, just like the configuration mapping.
+
+Also, you mentioned three branches but listed four. I’ve assumed all four: Development, QA, UAT, and PROD. The mapping does exact name matching, so if the real branch names differ in spelling, those lines need to match them.
+
+Those answers settle the design. Here is what each one changed in azure-pipelines-ahs-android.yml.
+
+1. One Play app
+
+The pipeline now uses one package name, which you fill in from your csproj. It already had one version code counter shared by all four branches, and that is now required. All four environments go into the same Play app, so a QA build and a Prod build can never have the same version code. Seed the counter above the highest version code you have uploaded so far.
+
+This creates one new problem. Every bundle in the library will look alike, so you need to tell a QA bundle from a Prod bundle there. To fix that, the pipeline reads ApplicationDisplayVersion from the csproj and adds a tag to it for every environment except Prod. A QA build shows up as 2.4.1-qa (1043), and a Prod build shows up as plain 2.4.1 (1044). The pipeline run in DevOps is renamed the same way, so the run history matches what you see in Play. This keeps someone from accidentally pushing a Dev-configured bundle to production later.
+
+2. Getting the bundle into the library
+
+The “Library” option in that dialog lists what’s in App bundle explorer. The Google Play upload task can’t drop a bundle into the library by itself, because it always attaches the bundle to a track. The draft defaults (internal track, draft release) get you the same result:
+
+The bundle lands in App bundle explorer, ready to select when you create a release.
+Nothing rolls out to anyone.
+Each run’s draft replaces the previous draft on the internal track. The earlier bundles stay in the library, so nothing is lost.
+
+When you’re ready for the closed-testing phase, you change two parameters: track alpha (Play’s API name for the default closed track) and draft off. No restructuring is needed.
+
+3. Government build agents
+
+Both pools now point to TODO-GovBuildPool. Give Copilot the real pool name. Have it confirm that those agents meet these requirements:
+
+Windows with .NET 10, JDK 17, and the Android SDK.
+Outbound access to NuGet, so dotnet workload install maui-android can run. On a locked-down agent, that workload may need to be preinstalled instead.
+Outbound access to androidpublisher.googleapis.com for the upload.
+If the JAVA_HOME_17_X64 variable isn’t defined on those agents, the JDK step needs the agent’s actual JDK path.
+
+Remaining TODOs for Copilot
+
+The path to AHS.Maui.csproj.
+The package name.
+The counter seed.
+The pool name.
+The Google Play task’s input names, checked against the installed extension version.
+The Directory.Build.props check, so Publish_* builds are optimized like Release in all five projects.
+

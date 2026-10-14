@@ -1,0 +1,161 @@
+# AHS Mobile - Android AAB build, sign, and upload to Google Play
+# DRAFT for review/refinement. Items marked TODO need real values.
+#
+# The environment is derived from the branch the pipeline runs on:
+#   Development -> Publish_Dev
+#   QA          -> Publish_QA
+#   UAT         -> Publish_UAT
+#   PROD        -> Publish_Prod
+# Any other branch fails immediately.
+#
+# Prerequisites (one-time setup):
+#   - Secure File:        ahs-upload.keystore            (Pipelines > Library > Secure files)
+#   - Variable group:     ahs-android-signing            (AndroidKeyAlias, AndroidKeyStorePassword [secret], AndroidKeyPassword [secret])
+#   - Service connection: AHS-GooglePlay                 (Google Play extension, service account JSON key)
+#   - Environments:       AHS-Play-Dev / -QA / -UAT / -Prod
+#       Prod: add Approvals check + Branch control check (allow only refs/heads/PROD)
+
+trigger: none          # manual runs only; see notes to enable per-branch CI
+pr: none
+
+parameters:
+  - name: playTrack
+    displayName: Google Play track
+    type: string
+    default: internal
+    values: [internal, alpha, beta, production]
+
+  - name: draftRelease
+    displayName: Upload as draft release (do not roll out)
+    type: boolean
+    default: true
+
+variables:
+  - group: ahs-android-signing
+
+  # ---- Branch -> environment mapping (resolved at template expansion) ----
+  - ${{ if eq(variables['Build.SourceBranchName'], 'Development') }}:
+    - name: envName
+      value: Dev
+  - ${{ elseif eq(variables['Build.SourceBranchName'], 'QA') }}:
+    - name: envName
+      value: QA
+  - ${{ elseif eq(variables['Build.SourceBranchName'], 'UAT') }}:
+    - name: envName
+      value: UAT
+  - ${{ elseif eq(variables['Build.SourceBranchName'], 'PROD') }}:
+    - name: envName
+      value: Prod
+  - ${{ else }}:
+    - name: envName
+      value: UNSUPPORTED
+
+  - name: buildConfiguration
+    value: Publish_$(envName)
+
+  - name: mauiProject
+    value: AHS.Maui/AHS.Maui.csproj          # TODO: confirm relative path from repo root
+
+  - name: targetFramework
+    value: net10.0-android
+
+  # Version code: one shared counter across ALL branches, so every upload to
+  # the same Play app gets a unique, increasing code. Seed MUST be higher than
+  # the highest version code already uploaded.
+  - name: versionCode
+    value: $[counter('ahs-android-versioncode', 1000)]   # TODO: set seed
+
+  # Package name. One value if all environments are the same Play app;
+  # otherwise map per branch like envName above.
+  - name: packageName
+    value: TODO.your.package.name
+
+stages:
+  # ---------------------------------------------------------------
+  - stage: Build
+    displayName: Build and sign $(envName) AAB
+    jobs:
+      - job: BuildAndroid
+        pool:
+          vmImage: windows-latest          # or your self-hosted pool
+        steps:
+          - pwsh: |
+              Write-Host "##vso[task.logissue type=error]Branch '$(Build.SourceBranchName)' is not a release branch (Development, QA, UAT, PROD)."
+              exit 1
+            displayName: Reject unsupported branch
+            condition: eq(variables['envName'], 'UNSUPPORTED')
+
+          - checkout: self
+
+          - task: UseDotNet@2
+            displayName: Install .NET SDK
+            inputs:
+              packageType: sdk
+              useGlobalJson: true          # recommended: pin SDK with global.json
+
+          - pwsh: |
+              Write-Host "##vso[task.setvariable variable=JAVA_HOME]$env:JAVA_HOME_17_X64"
+            displayName: Use JDK 17
+
+          - pwsh: dotnet workload install maui-android
+            displayName: Install MAUI Android workload
+
+          - task: DownloadSecureFile@1
+            name: keystore
+            displayName: Download upload keystore
+            inputs:
+              secureFile: ahs-upload.keystore
+
+          - pwsh: |
+              dotnet publish "$(mauiProject)" `
+                -f $(targetFramework) `
+                -c $(buildConfiguration) `
+                -p:AndroidPackageFormat=aab `
+                -p:ApplicationVersion=$(versionCode) `
+                -p:AndroidKeyStore=true `
+                -p:AndroidSigningKeyStore="$(keystore.secureFilePath)" `
+                -p:AndroidSigningKeyAlias=$(AndroidKeyAlias) `
+                -p:AndroidSigningStorePass=env:KEYSTORE_PASS `
+                -p:AndroidSigningKeyPass=env:KEY_PASS `
+                -o "$(Build.ArtifactStagingDirectory)/publish"
+            displayName: Publish signed AAB ($(buildConfiguration), versionCode $(versionCode))
+            env:
+              KEYSTORE_PASS: $(AndroidKeyStorePassword)
+              KEY_PASS: $(AndroidKeyPassword)
+
+          - pwsh: |
+              New-Item -ItemType Directory -Force "$(Build.ArtifactStagingDirectory)/aab" | Out-Null
+              Get-ChildItem "$(Build.ArtifactStagingDirectory)/publish" -Recurse -Filter "*-Signed.aab" |
+                Copy-Item -Destination "$(Build.ArtifactStagingDirectory)/aab"
+              Get-ChildItem "$(Build.ArtifactStagingDirectory)/aab"
+            displayName: Collect signed AAB
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish AAB artifact
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)/aab
+              artifact: aab
+
+  # ---------------------------------------------------------------
+  - stage: UploadToPlay
+    displayName: Upload to Google Play (${{ parameters.playTrack }})
+    dependsOn: Build
+    jobs:
+      - deployment: PlayUpload
+        environment: AHS-Play-${{ variables.envName }}   # must resolve at compile time, so template syntax here
+        pool:
+          vmImage: windows-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: GooglePlayRelease@4
+                  displayName: Upload AAB to Google Play
+                  inputs:
+                    serviceConnection: AHS-GooglePlay
+                    applicationId: $(packageName)
+                    action: SingleBundle
+                    bundleFile: $(Pipeline.Workspace)/aab/*.aab
+                    track: ${{ parameters.playTrack }}
+                    isDraftRelease: ${{ parameters.draftRelease }}
+                    # TODO: verify input names against the installed extension version
